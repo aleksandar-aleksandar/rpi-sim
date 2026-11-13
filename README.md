@@ -13,6 +13,8 @@ only lights if current can actually flow from the GPIO pin through the LED to
 ground. Wiring mistakes behave like they would in real life, and the simulator
 tells you why.
 
+![rpi-sim window: Raspberry Pi header, breadboard with components, pin states and warnings](docs/screenshot.png)
+
 ## Features
 
 - **Real wiring**: a 40-pin header with correct labels, a 30-column breadboard
