@@ -5,8 +5,8 @@ venv/
 .vscode/
 .idea/
 
-# your own circuits (the presets in examples/ are tracked)
-/circuit.json
+# your own circuits (presets in examples/NN_*.json are tracked)
+circuit.json
 
 # local notes
 CLAUDE.md

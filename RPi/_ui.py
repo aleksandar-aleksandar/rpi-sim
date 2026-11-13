@@ -379,9 +379,6 @@ class App:
         path = self.presets.get(self.preset.get())
         if not path:
             return
-        if os.path.abspath(path) == os.path.abspath(core.CUR_FILE[0]):
-            core.load(path)
-            return
         if core.OBJ and not messagebox.askyesno(
                 "Load preset", f"Replace the current circuit with '{self.preset.get()}'?", parent=self.root):
             return
