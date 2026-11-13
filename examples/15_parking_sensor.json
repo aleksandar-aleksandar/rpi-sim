@@ -1,0 +1,124 @@
+{
+ "format": "rpi-sim-1",
+ "next": 18,
+ "objects": {
+  "o1": {
+   "type": "wire",
+   "a": "pi:6",
+   "b": "bb:T-:1",
+   "color": "#1c1c1c"
+  },
+  "o2": {
+   "type": "rgb",
+   "legs": [
+    "bb:a:8",
+    "bb:a:9",
+    "bb:a:10",
+    "bb:a:11"
+   ],
+   "name": "RGB1"
+  },
+  "o3": {
+   "type": "res",
+   "legs": [
+    "bb:c:8",
+    "bb:f:8"
+   ],
+   "ohms": 220,
+   "name": "R1"
+  },
+  "o4": {
+   "type": "wire",
+   "a": "pi:11",
+   "b": "bb:g:8",
+   "color": "#d42020"
+  },
+  "o5": {
+   "type": "res",
+   "legs": [
+    "bb:c:10",
+    "bb:f:10"
+   ],
+   "ohms": 220,
+   "name": "R2"
+  },
+  "o6": {
+   "type": "wire",
+   "a": "pi:13",
+   "b": "bb:g:10",
+   "color": "#17a03a"
+  },
+  "o7": {
+   "type": "res",
+   "legs": [
+    "bb:c:11",
+    "bb:f:11"
+   ],
+   "ohms": 220,
+   "name": "R3"
+  },
+  "o8": {
+   "type": "wire",
+   "a": "pi:15",
+   "b": "bb:g:11",
+   "color": "#2a6bd6"
+  },
+  "o9": {
+   "type": "wire",
+   "a": "bb:b:9",
+   "b": "bb:T-:9",
+   "color": "#1c1c1c"
+  },
+  "o10": {
+   "type": "pbuz",
+   "legs": [
+    "bb:a:25",
+    "bb:a:27"
+   ],
+   "name": "BZ1"
+  },
+  "o11": {
+   "type": "wire",
+   "a": "pi:22",
+   "b": "bb:b:25",
+   "color": "#e8c400"
+  },
+  "o12": {
+   "type": "wire",
+   "a": "bb:b:27",
+   "b": "bb:T-:27",
+   "color": "#1c1c1c"
+  },
+  "o13": {
+   "type": "sonar",
+   "x": 640,
+   "y": 520,
+   "cm": 120,
+   "name": "US1"
+  },
+  "o14": {
+   "type": "wire",
+   "a": "m:o13:VCC",
+   "b": "pi:2",
+   "color": "#d42020"
+  },
+  "o15": {
+   "type": "wire",
+   "a": "m:o13:GND",
+   "b": "bb:T-:24",
+   "color": "#1c1c1c"
+  },
+  "o16": {
+   "type": "wire",
+   "a": "m:o13:TRIG",
+   "b": "pi:16",
+   "color": "#e8c400"
+  },
+  "o17": {
+   "type": "wire",
+   "a": "m:o13:ECHO",
+   "b": "pi:18",
+   "color": "#17a03a"
+  }
+ }
+}

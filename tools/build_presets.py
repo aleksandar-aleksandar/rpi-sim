@@ -156,6 +156,15 @@ def build():
     c = Circuit(); c.ground(); c.sonar_module(16, 18)      # TRIG = GPIO23, ECHO = GPIO24
     c.save("13_ultrasonic")
 
+    c = Circuit(); c.ground(); c.led(11, 10); c.button(13, 20)
+    c.save("14_gpiozero_button_led")
+
+    c = Circuit(); c.ground()
+    c.rgb_led(11, 13, 15, 8)                               # R=GPIO17, G=GPIO27, B=GPIO22
+    c.buzzer("pbuz", 22, 25)                               # GPIO25
+    c.sonar_module(16, 18, cm=120)                         # TRIG=GPIO23, ECHO=GPIO24
+    c.save("15_parking_sensor")
+
 
 if __name__ == "__main__":
     build()
