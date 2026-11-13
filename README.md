@@ -1,5 +1,7 @@
 # rpi-sim – Raspberry Pi GPIO simulator
 
+[![tests](https://github.com/aleksandar-aleksandar/rpi-sim/actions/workflows/tests.yml/badge.svg)](https://github.com/aleksandar-aleksandar/rpi-sim/actions/workflows/tests.yml)
+
 Write Raspberry Pi GPIO code on your PC, wire up a virtual breadboard, and watch
 it behave like the real thing. No Pi required.
 

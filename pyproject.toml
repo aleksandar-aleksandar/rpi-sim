@@ -9,7 +9,7 @@ description = "Run Raspberry Pi GPIO code on your PC: a drop-in RPi.GPIO / gpioz
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Aleksandar Papić" }]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = []
 keywords = ["raspberry-pi", "gpio", "simulator", "RPi.GPIO", "gpiozero", "breadboard", "education"]
 classifiers = [
