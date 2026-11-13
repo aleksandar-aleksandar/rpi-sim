@@ -150,8 +150,55 @@ def occupant(pt):
     return None
 
 
+# ---------------- undo / redo ----------------
+HISTORY_LIMIT = 100
+_UNDO = []
+_REDO = []
+
+
+def _snapshot():
+    return json.dumps({"next": _NEXT[0], "objects": OBJ})
+
+
+def _record():
+    """Call (under LOCK) right before an edit; makes it undoable."""
+    _UNDO.append(_snapshot())
+    del _UNDO[:-HISTORY_LIMIT]
+    _REDO.clear()
+
+
+def _restore(snapshot):
+    _replace_objects(json.loads(snapshot))
+    _bump()
+
+
+def undo():
+    with LOCK:
+        if not _UNDO:
+            return False
+        _REDO.append(_snapshot())
+        _restore(_UNDO.pop())
+        return True
+
+
+def redo():
+    with LOCK:
+        if not _REDO:
+            return False
+        _UNDO.append(_snapshot())
+        _restore(_REDO.pop())
+        return True
+
+
+def clear_history():
+    with LOCK:
+        _UNDO.clear()
+        _REDO.clear()
+
+
 def add_obj(o):
     with LOCK:
+        _record()
         oid = f"o{_NEXT[0]}"
         _NEXT[0] += 1
         if o["type"] != "wire" and "name" not in o:
@@ -168,9 +215,10 @@ def add_obj(o):
 
 def remove_obj(oid):
     with LOCK:
-        o = OBJ.pop(oid, None)
-        if o is None:
+        if oid not in OBJ:
             return
+        _record()
+        o = OBJ.pop(oid)
         PRESSED.discard(oid)
         PIR_STATE.pop(oid, None)
         if o["type"] == "pir":  # wires attached to the module go with it
@@ -186,12 +234,14 @@ def move_obj(oid, changes):
         o = OBJ.get(oid)
         if o is None:
             return
+        _record()
         o.update(changes)
         _bump()
 
 
 def clear_all():
     with LOCK:
+        _record()
         OBJ.clear()
         PRESSED.clear()
         PIR_STATE.clear()
@@ -234,6 +284,7 @@ def load(path=None):
     with LOCK:
         _replace_objects(data)
         CUR_FILE[0] = path
+        clear_history()
         _bump(persist=False)
     log(f"Loaded circuit: {os.path.basename(path)} ({len(OBJ)} items)")
     return True
@@ -247,6 +298,7 @@ def load_preset(path):
         log(f"Cannot load preset {path}: {ex}")
         return False
     with LOCK:
+        _record()
         _replace_objects(data)
         _bump()
     log(f"Loaded preset: {os.path.basename(path)}")

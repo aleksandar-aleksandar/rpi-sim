@@ -204,6 +204,8 @@ class App:
                          state="readonly").pack(side="left", padx=(2, 2))
             ttk.Button(bar2, text="Load", command=self._load_preset).pack(side="left", padx=(0, 10))
         ttk.Button(bar2, text="Clear", command=self._clear).pack(side="right", padx=2)
+        ttk.Button(bar2, text="↷ Redo", width=7, command=self._redo).pack(side="right", padx=2)
+        ttk.Button(bar2, text="↶ Undo", width=7, command=self._undo).pack(side="right", padx=2)
         ttk.Button(bar2, text="Save as…", command=self._save_as).pack(side="right", padx=2)
         ttk.Button(bar2, text="Open…", command=self._open).pack(side="right", padx=2)
 
@@ -231,6 +233,24 @@ class App:
         c.bind("<Button-3>", self._on_right)
         c.bind("<Motion>", self._on_motion)
         self.root.bind("<Escape>", lambda e: self._cancel())
+        for seq in ("<Control-z>", "<Control-Z>"):
+            self.root.bind(seq, self._undo_key)
+        for seq in ("<Control-y>", "<Control-Y>", "<Control-Shift-z>", "<Control-Shift-Z>"):
+            self.root.bind(seq, lambda e: self._redo())
+
+    def _undo_key(self, e):
+        if e.state & 0x1:      # Shift held -> redo
+            self._redo()
+        else:
+            self._undo()
+
+    def _undo(self):
+        self.pending = self.drag = None
+        self._hint("Undone." if core.undo() else "Nothing to undo.")
+
+    def _redo(self):
+        self.pending = self.drag = None
+        self._hint("Redone." if core.redo() else "Nothing to redo.")
 
     def _draw_static(self):
         c = self.cv

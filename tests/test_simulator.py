@@ -157,6 +157,47 @@ class PresetsTest(Base):
             self.assertIn(needle, text)
 
 
+class UndoTest(Base):
+    def test_undo_redo_edits(self):
+        core.clear_history()
+        a = core.add_obj({"type": "led", "legs": ["bb:a:1", "bb:a:2"], "color": "red"})
+        core.move_obj(a, {"legs": ["bb:a:5", "bb:a:6"]})
+        core.remove_obj(a)
+        self.assertNotIn(a, core.OBJ)
+        self.assertTrue(core.undo())
+        self.assertEqual(core.OBJ[a]["legs"], ["bb:a:5", "bb:a:6"])
+        self.assertTrue(core.undo())
+        self.assertEqual(core.OBJ[a]["legs"], ["bb:a:1", "bb:a:2"])
+        self.assertTrue(core.redo())
+        self.assertEqual(core.OBJ[a]["legs"], ["bb:a:5", "bb:a:6"])
+        core.add_obj({"type": "wire", "a": "pi:1", "b": "bb:T+:1", "color": "#d42020"})
+        self.assertFalse(core.redo())          # a new edit drops the redo branch
+
+    def test_presses_are_not_edits(self):
+        core.load_preset(os.path.join(EXAMPLES, "02_button_led.json"))
+        core.clear_history()
+        btn = first("btn")
+        core.press(btn)
+        core.release(btn)
+        self.assertFalse(core.undo())
+
+    def test_preset_load_is_undoable(self):
+        core.load_preset(os.path.join(EXAMPLES, "01_blink.json"))
+        n = len(core.OBJ)
+        core.load_preset(os.path.join(EXAMPLES, "09_motion_alarm.json"))
+        self.assertTrue(core.undo())
+        self.assertEqual(len(core.OBJ), n)
+
+    def test_history_is_bounded(self):
+        core.clear_history()
+        for i in range(core.HISTORY_LIMIT + 20):
+            core.add_obj({"type": "wire", "a": "pi:1", "b": f"bb:T+:{i % 30 + 1}", "color": "#d42020"})
+        undone = 0
+        while core.undo():
+            undone += 1
+        self.assertEqual(undone, core.HISTORY_LIMIT)
+
+
 class ApiErrorsTest(Base):
     def test_errors_match_rpi_gpio(self):
         core.MODE[0] = None

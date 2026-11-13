@@ -67,6 +67,16 @@ class EditorTest(unittest.TestCase):
         GPIO.setup(17, GPIO.OUT, initial=GPIO.HIGH)
         self.assertEqual(core.evaluate()["leds"][led][0], "off")   # wires stayed behind
 
+    def test_undo_restores_drag(self):
+        self.load("01_blink")
+        led = first("led")
+        before = list(core.OBJ[led]["legs"])
+        self.drag(led, 5 * _ui.P, 0)
+        self.app._undo()
+        self.assertEqual(core.OBJ[led]["legs"], before)
+        self.app._redo()
+        self.assertEqual(core.OBJ[led]["legs"], ["bb:a:15", "bb:a:16"])
+
     def test_drag_onto_taken_holes_is_rejected(self):
         self.load("01_blink")
         led = first("led")
