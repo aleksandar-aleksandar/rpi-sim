@@ -7,3 +7,7 @@ venv/
 
 # your own circuits (the presets in examples/ are tracked)
 /circuit.json
+
+# local notes
+CLAUDE.md
+.issues/
