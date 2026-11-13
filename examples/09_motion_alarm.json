@@ -1,0 +1,80 @@
+{
+ "format": "rpi-sim-1",
+ "next": 12,
+ "objects": {
+  "o1": {
+   "type": "wire",
+   "a": "pi:6",
+   "b": "bb:T-:1",
+   "color": "#1c1c1c"
+  },
+  "o2": {
+   "type": "led",
+   "legs": [
+    "bb:a:10",
+    "bb:a:11"
+   ],
+   "color": "red",
+   "name": "LED1"
+  },
+  "o3": {
+   "type": "wire",
+   "a": "pi:11",
+   "b": "bb:b:10",
+   "color": "#17a03a"
+  },
+  "o4": {
+   "type": "res",
+   "legs": [
+    "bb:b:11",
+    "bb:T-:11"
+   ],
+   "ohms": 220,
+   "name": "R1"
+  },
+  "o5": {
+   "type": "abuz",
+   "legs": [
+    "bb:a:25",
+    "bb:a:27"
+   ],
+   "name": "BZ1"
+  },
+  "o6": {
+   "type": "wire",
+   "a": "pi:15",
+   "b": "bb:b:25",
+   "color": "#e8c400"
+  },
+  "o7": {
+   "type": "wire",
+   "a": "bb:b:27",
+   "b": "bb:T-:27",
+   "color": "#1c1c1c"
+  },
+  "o8": {
+   "type": "pir",
+   "x": 620,
+   "y": 520,
+   "name": "PIR1"
+  },
+  "o9": {
+   "type": "wire",
+   "a": "m:o8:VCC",
+   "b": "pi:2",
+   "color": "#d42020"
+  },
+  "o10": {
+   "type": "wire",
+   "a": "m:o8:GND",
+   "b": "bb:T-:9",
+   "color": "#1c1c1c"
+  },
+  "o11": {
+   "type": "wire",
+   "a": "m:o8:OUT",
+   "b": "pi:7",
+   "color": "#f07a00"
+  }
+ }
+}

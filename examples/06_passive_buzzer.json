@@ -1,0 +1,32 @@
+{
+ "format": "rpi-sim-1",
+ "next": 5,
+ "objects": {
+  "o1": {
+   "type": "wire",
+   "a": "pi:6",
+   "b": "bb:T-:1",
+   "color": "#1c1c1c"
+  },
+  "o2": {
+   "type": "pbuz",
+   "legs": [
+    "bb:a:25",
+    "bb:a:27"
+   ],
+   "name": "BZ1"
+  },
+  "o3": {
+   "type": "wire",
+   "a": "pi:15",
+   "b": "bb:b:25",
+   "color": "#e8c400"
+  },
+  "o4": {
+   "type": "wire",
+   "a": "bb:b:27",
+   "b": "bb:T-:27",
+   "color": "#1c1c1c"
+  }
+ }
+}

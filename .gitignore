@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.vscode/
+.idea/
+
+# your own circuits (the presets in examples/ are tracked)
+/circuit.json
