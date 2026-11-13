@@ -14,7 +14,7 @@ OUT_DIR = os.path.join(ROOT, "examples")
 
 RED, BLACK, BLUE, GREEN, YELLOW, ORANGE = ("#d42020", "#1c1c1c", "#2a6bd6",
                                            "#17a03a", "#e8c400", "#f07a00")
-PREFIX = {"servo": "SERVO", "led": "LED", "rgb": "RGB", "res": "R", "btn": "SW", "abuz": "BZ", "pbuz": "BZ", "pir": "PIR"}
+PREFIX = {"sonar": "US", "servo": "SERVO", "led": "LED", "rgb": "RGB", "res": "R", "btn": "SW", "abuz": "BZ", "pbuz": "BZ", "pir": "PIR"}
 
 
 class Circuit:
@@ -89,6 +89,14 @@ class Circuit:
         self.wire(f"m:{oid}:GND", "bb:T-:20", BLACK)
         self.wire(f"m:{oid}:SIG", f"pi:{sig_phys_pin}", ORANGE)
 
+    def sonar_module(self, trig_phys_pin, echo_phys_pin, x=640, y=520, cm=50):
+        """HC-SR04: VCC -> 5V (pin 2), GND -> GND rail, TRIG/ECHO -> GPIOs."""
+        oid = self._add({"type": "sonar", "x": x, "y": y, "cm": cm})
+        self.wire(f"m:{oid}:VCC", "pi:2", RED)
+        self.wire(f"m:{oid}:GND", "bb:T-:24", BLACK)
+        self.wire(f"m:{oid}:TRIG", f"pi:{trig_phys_pin}", YELLOW)
+        self.wire(f"m:{oid}:ECHO", f"pi:{echo_phys_pin}", GREEN)
+
     def save(self, name):
         path = os.path.join(OUT_DIR, f"{name}.json")
         data = {"format": "rpi-sim-1", "next": len(self.objects) + 1, "objects": self.objects}
@@ -144,6 +152,9 @@ def build():
 
     c = Circuit(); c.ground(); c.servo_module(12)          # SIG = GPIO18
     c.save("12_servo")
+
+    c = Circuit(); c.ground(); c.sonar_module(16, 18)      # TRIG = GPIO23, ECHO = GPIO24
+    c.save("13_ultrasonic")
 
 
 if __name__ == "__main__":

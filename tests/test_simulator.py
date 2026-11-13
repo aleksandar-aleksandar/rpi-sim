@@ -237,6 +237,74 @@ class ServoTest(Base):
         self.assertTrue(any("servos need 5V" in w for w in self.ev()["warnings"]))
 
 
+class UltrasonicTest(Base):
+    preset = "13_ultrasonic"
+
+    def setUp(self):
+        super().setUp()
+        GPIO.setup(23, GPIO.OUT, initial=GPIO.LOW)
+        GPIO.setup(24, GPIO.IN)
+        self.us = first("sonar")
+
+    def measure(self):
+        """The classic tutorial measurement loop."""
+        GPIO.output(23, GPIO.HIGH)
+        time.sleep(0.00001)
+        GPIO.output(23, GPIO.LOW)
+        clock = time.perf_counter
+        deadline = clock() + 0.05
+        start = end = clock()
+        while GPIO.input(24) == 0 and clock() < deadline:
+            start = clock()
+        while GPIO.input(24) == 1 and clock() < deadline:
+            end = clock()
+        return (end - start) * 34300 / 2
+
+    def test_measures_set_distance(self):
+        for cm in (10, 50, 200):
+            core.set_distance(self.us, cm)
+            readings = sorted(self.measure() for _ in range(5))
+            self.assertAlmostEqual(readings[2], cm, delta=max(2.0, cm * 0.03))
+        self.assertEqual(self.ev()["warnings"], [])
+
+    def test_echo_edges_fire_callbacks(self):
+        edges = []
+        GPIO.add_event_detect(24, GPIO.BOTH, callback=lambda ch: edges.append(GPIO.input(ch)))
+        core.set_distance(self.us, 100)
+        GPIO.output(23, GPIO.HIGH)
+        GPIO.output(23, GPIO.LOW)
+        time.sleep(0.05)
+        self.assertEqual(len(edges), 2)
+
+    def test_wait_for_edge_on_echo(self):
+        import threading
+        core.set_distance(self.us, 300)
+
+        def ping():
+            time.sleep(0.02)
+            GPIO.output(23, GPIO.HIGH)
+            GPIO.output(23, GPIO.LOW)
+        threading.Thread(target=ping).start()
+        self.assertEqual(GPIO.wait_for_edge(24, GPIO.RISING, timeout=500), 24)
+        self.assertEqual(GPIO.wait_for_edge(24, GPIO.FALLING, timeout=500), 24)
+        self.assertEqual(core.PINS[24]["waiters"], 0)
+
+    def test_distance_is_clamped_and_not_undoable(self):
+        core.clear_history()
+        core.set_distance(self.us, 9999)
+        self.assertEqual(core.OBJ[self.us]["cm"], core.SONAR_RANGE[1])
+        self.assertFalse(core.undo())
+
+    def test_unpowered_sensor_never_echoes(self):
+        vcc = next(k for k, o in core.OBJ.items() if o["type"] == "wire" and o["b"] == "pi:2")
+        core.remove_obj(vcc)
+        GPIO.output(23, GPIO.HIGH)
+        GPIO.output(23, GPIO.LOW)
+        time.sleep(0.01)
+        self.assertEqual(GPIO.input(24), 0) if not core.PINS[24]["floating"] else None
+        self.assertTrue(any("not powered" in w for w in self.ev()["warnings"]))
+
+
 class UndoTest(Base):
     def test_undo_redo_edits(self):
         core.clear_history()

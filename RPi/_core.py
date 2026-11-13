@@ -76,7 +76,8 @@ RAILS = ("T-", "T+", "B-", "B+")
 ALL_ROWS = ["T-", "T+", *TOP_ROWS, *BOT_ROWS, "B-", "B+"]
 PIR_TERMS = ("GND", "OUT", "VCC")
 # Modules sit in the module area and expose terminals m:<id>:<TERM> for wires.
-MODULE_TERMS = {"pir": PIR_TERMS, "servo": ("GND", "VCC", "SIG")}
+MODULE_TERMS = {"pir": PIR_TERMS, "servo": ("GND", "VCC", "SIG"),
+                "sonar": ("VCC", "TRIG", "ECHO", "GND")}
 MODULES = frozenset(MODULE_TERMS)
 
 
@@ -117,9 +118,13 @@ PRESSED = set()     # buttons currently held down
 PIR_STATE = {}      # id -> [held, high_until]
 PIR_TAIL = 1.5      # PIR keeps OUT high this many seconds after motion
 SERVO_ANGLE = {}    # id -> last commanded angle (a servo holds its position)
+SONAR = {}          # id -> {"trig": last TRIG level, "start": t, "end": t} of the echo pulse
+ECHO_PINS = {}      # bcm -> sonar id, for input pins wired straight to an ECHO terminal
+SONAR_RANGE = (2, 400)   # cm
+SOUND_CM_PER_S = 34300
 
-NAME_PREFIX = {"servo": "SERVO", "led": "LED", "rgb": "RGB", "res": "R", "btn": "SW", "abuz": "BZ", "pbuz": "BZ", "pir": "PIR"}
-TYPE_NAME = {"servo": "servo", "led": "LED", "rgb": "RGB LED", "res": "resistor", "btn": "button", "abuz": "active buzzer",
+NAME_PREFIX = {"sonar": "US", "servo": "SERVO", "led": "LED", "rgb": "RGB", "res": "R", "btn": "SW", "abuz": "BZ", "pbuz": "BZ", "pir": "PIR"}
+TYPE_NAME = {"sonar": "ultrasonic sensor", "servo": "servo", "led": "LED", "rgb": "RGB LED", "res": "resistor", "btn": "button", "abuz": "active buzzer",
              "pbuz": "passive buzzer", "pir": "PIR sensor", "wire": "wire"}
 
 
@@ -226,6 +231,7 @@ def remove_obj(oid):
         PRESSED.discard(oid)
         PIR_STATE.pop(oid, None)
         SERVO_ANGLE.pop(oid, None)
+        SONAR.pop(oid, None)
         if o["type"] in MODULES:  # wires attached to the module go with it
             terms = set(points_of(oid, o))
             for wid in [w for w, x in OBJ.items() if x["type"] == "wire" and ({x["a"], x["b"]} & terms)]:
@@ -275,6 +281,7 @@ def _replace_objects(data):
     PRESSED.clear()
     PIR_STATE.clear()
     SERVO_ANGLE.clear()
+    SONAR.clear()
 
 
 def load(path=None):
@@ -519,6 +526,29 @@ def evaluate():
             else:
                 warnings.append(f"{o['name']}: not powered (VCC → 5V, GND → GND).")
 
+        sonar, echo_nets = {}, {}
+        for oid, o in OBJ.items():
+            if o["type"] != "sonar":
+                continue
+            vcc, gnd = resolve(N(f"m:{oid}:VCC")), resolve(N(f"m:{oid}:GND"))
+            powered = bool(vcc and gnd and vcc[0] - gnd[0] >= 3.0)
+            tn = N(f"m:{oid}:TRIG")
+            # use the instantaneous GPIO level: fast repeated pings must not look like PWM
+            drivers = [PINS[b]["level"] for p, (kind, b) in PI_PINS.items()
+                       if kind == "GPIO" and b in PINS and PINS[b]["dir"] == OUT and N(f"pi:{p}") == tn]
+            if drivers:
+                trig_level = 1 if any(drivers) else 0
+            else:
+                trig = resolve(tn)
+                trig_level = 1 if (trig and trig[0] > 1.65) else 0
+            sonar[oid] = (powered, trig_level, o.get("cm", 50))
+            if powered:
+                echo = N(f"m:{oid}:ECHO")
+                echo_nets[echo] = oid
+                src[echo].append((3.3 if echo_high(oid) else 0.0, f"{o['name']} ECHO", None))
+            else:
+                warnings.append(f"{o['name']}: not powered (VCC → 5V, GND → GND).")
+
         for n, s in src.items():
             if len({round(v, 1) for v, _, _ in s}) > 1:
                 labels = sorted({f"{lbl}={v:.1f}V" for v, lbl, _ in s})
@@ -576,11 +606,14 @@ def evaluate():
                         warnings.append(f"{o['name']}: active buzzer is reversed (+ must face the GPIO).")
                 buz[oid] = freq
 
-        inputs = {}
+        inputs, echo_pins = {}, {}
         for b, st in PINS.items():
             if st["dir"] != IN:
                 continue
-            r = resolve(N(f"pi:{BCM_TO_PHYS[b]}"))
+            n = N(f"pi:{BCM_TO_PHYS[b]}")
+            if n in echo_nets and len(src.get(n, [])) == 1:
+                echo_pins[b] = echo_nets[n]
+            r = resolve(n)
             if r:
                 lvl = 1 if r[0] > 1.65 else 0
             elif st["pull"] == PUD_UP:
@@ -596,6 +629,7 @@ def evaluate():
                         and any(pt.startswith("pi:") and PI_PINS[int(pt[3:])][0] == "GND"
                                 for pt in (o["a"], o["b"])))
         return {"leds": leds, "buz": buz, "pir": pir, "servo": servo, "inputs": inputs,
+                "sonar": sonar, "echo_pins": echo_pins,
                 "warnings": list(dict.fromkeys(warnings)), "gnd_wires": gnd_wires}
 
 
@@ -624,6 +658,62 @@ def _eval_servo(oid, o, N, resolve, warnings):
             warnings.append(f"{name}: pulse is {pulse:.2f} ms – expected {lo}–{hi} ms "
                             f"(duty {lo * 5:g}–{hi * 5:g} % at 50 Hz).")
     return powered, SERVO_ANGLE.get(oid)
+
+
+def echo_high(oid, now=None):
+    s = SONAR.get(oid)
+    if not s:
+        return False
+    now = time.perf_counter() if now is None else now
+    return s["start"] <= now < s["end"]
+
+
+def set_distance(oid, cm):
+    """Set what the ultrasonic sensor 'sees' (not an undoable edit)."""
+    with LOCK:
+        o = OBJ.get(oid)
+        if o is None or o["type"] != "sonar":
+            return
+        o["cm"] = max(SONAR_RANGE[0], min(SONAR_RANGE[1], int(round(cm))))
+        try:
+            save()
+        except Exception as ex:
+            log(f"Cannot save circuit: {ex}")
+
+
+def _sonar_triggers(sonar):
+    """A HIGH->LOW edge on TRIG fires a ping: ECHO goes high ~0.4 ms later
+    for the sound's round-trip time. Timers re-run input detection at both
+    echo edges so edge callbacks fire on time. Uses perf_counter: on Windows
+    time.time() only ticks about once per millisecond."""
+    now = time.perf_counter()
+    for oid, (powered, trig, cm) in sonar.items():
+        s = SONAR.setdefault(oid, {"trig": trig, "start": 0.0, "end": 0.0})
+        if powered and s["trig"] == 1 and trig == 0 and now >= s["end"]:
+            start = now + 0.0004
+            end = start + 2.0 * cm / SOUND_CM_PER_S
+            s["start"], s["end"] = start, end
+            # only spin up a thread if someone listens for edges; plain polling
+            # reads the pulse directly and must not be disturbed by extra threads
+            listeners = [PINS[b] for b, s_oid in ECHO_PINS.items()
+                         if s_oid == oid and (PINS[b]["edge"] or PINS[b].get("waiters"))]
+            if listeners:
+                threading.Thread(target=_echo_worker, args=(oid, start, end), daemon=True).start()
+        s["trig"] = trig
+
+
+def _echo_worker(oid, start, end):
+    """Drive the echo pin's level/edges at the right moments. time.sleep is
+    high-resolution; even when woken late, both edges are delivered in order."""
+    for at, level in ((start, 1), (end, 0)):
+        delay = at - time.perf_counter()
+        if delay > 0:
+            time.sleep(delay)
+        with LOCK:
+            for b, s_oid in list(ECHO_PINS.items()):
+                st = PINS.get(b)
+                if s_oid == oid and st is not None and st["dir"] == IN:
+                    _set_input_level(b, st, level)
 
 
 RGB_LEGS = ("R", "K", "G", "B")     # common-cathode pin order, longest leg = K
@@ -660,9 +750,14 @@ def update_inputs():
     """Recompute input pin levels and fire edge callbacks."""
     with LOCK:
         ins = [b for b, s in PINS.items() if s["dir"] == IN]
-        if not ins:
+        has_sonar = any(o["type"] == "sonar" for o in OBJ.values())
+        if not ins and not has_sonar:
             return
         ev = evaluate()
+        ECHO_PINS.clear()
+        ECHO_PINS.update(ev["echo_pins"])
+        if has_sonar:
+            _sonar_triggers(ev["sonar"])
         for b in ins:
             st = PINS[b]
             lvl = ev["inputs"].get(b)
@@ -671,27 +766,37 @@ def update_inputs():
                 if st["level"] is None:
                     st["level"] = random.randint(0, 1)
                 continue
-            old = st["level"]
-            if old is None:
-                st["level"] = lvl
+            if b in ECHO_PINS:      # edges on echo pins are driven by _echo_worker
+                if st["level"] is None:
+                    st["level"] = 1 if echo_high(ECHO_PINS[b]) else 0
                 continue
-            if lvl == old:
-                continue
-            st["level"] = lvl
-            if lvl:
-                st["n_rise"] += 1
-            else:
-                st["n_fall"] += 1
-            log(f"GPIO{b} (input) -> {'HIGH' if lvl else 'LOW'}")
-            e = st["edge"]
-            if e and (e == BOTH or (e == RISING and lvl) or (e == FALLING and not lvl)):
-                now = time.time()
-                if now - st["last_cb"] >= st["bounce"]:
-                    st["last_cb"] = now
-                    st["flag"] = True
-                    ch = BCM_TO_PHYS[b] if MODE[0] == BOARD else b
-                    for cb in st["cbs"]:
-                        CB_Q.put((cb, ch))
+            _set_input_level(b, st, lvl)
+
+
+def _set_input_level(b, st, lvl):
+    """Apply a new input level; count edges and queue callbacks. Caller holds LOCK."""
+    old = st["level"]
+    if old is None:
+        st["level"] = lvl
+        return
+    if lvl == old:
+        return
+    st["level"] = lvl
+    if lvl:
+        st["n_rise"] += 1
+    else:
+        st["n_fall"] += 1
+    if b not in ECHO_PINS:
+        log(f"GPIO{b} (input) -> {'HIGH' if lvl else 'LOW'}")
+    e = st["edge"]
+    if e and (e == BOTH or (e == RISING and lvl) or (e == FALLING and not lvl)):
+        now = time.time()
+        if now - st["last_cb"] >= st["bounce"]:
+            st["last_cb"] = now
+            st["flag"] = True
+            ch = BCM_TO_PHYS[b] if MODE[0] == BOARD else b
+            for cb in st["cbs"]:
+                CB_Q.put((cb, ch))
 
 
 # ---------------- GUI ----------------

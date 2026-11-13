@@ -111,6 +111,17 @@ class EditorTest(unittest.TestCase):
         self.drag(servo, 0, 40)
         self.assertEqual(core.OBJ[servo]["y"], 560)
 
+    def test_scroll_sets_sonar_distance(self):
+        self.load("13_ultrasonic")
+        us = first("sonar")
+        x, y = self.body(us)
+        self.app._on_wheel(types.SimpleNamespace(x=x, y=y, delta=120, state=0))
+        self.assertEqual(core.OBJ[us]["cm"], 55)
+        self.app._on_wheel(types.SimpleNamespace(x=x, y=y, delta=-120, state=0x1))   # Shift
+        self.assertEqual(core.OBJ[us]["cm"], 54)
+        self.app._on_wheel(types.SimpleNamespace(x=x, y=y), -1)                       # X11 button 5
+        self.assertEqual(core.OBJ[us]["cm"], 49)
+
     def test_click_without_drag_still_presses(self):
         self.load("02_button_led")
         GPIO.setmode(GPIO.BCM)

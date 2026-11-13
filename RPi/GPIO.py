@@ -110,6 +110,9 @@ def input(channel):  # noqa: A001 - same name as in RPi.GPIO
         st = core.PINS.get(b)
         if st is None:
             raise RuntimeError("You must setup() the GPIO channel first")
+        sonar = core.ECHO_PINS.get(b) if st["dir"] == IN else None
+        if sonar is not None:            # time-critical: read the echo pulse directly
+            return HIGH if core.echo_high(sonar) else LOW
         if st["dir"] == IN and st["floating"]:
             return random.randint(0, 1)
         return HIGH if st["level"] else LOW
@@ -175,18 +178,25 @@ def wait_for_edge(channel, edge, bouncetime=None, timeout=None):
         if st["edge"] is not None:
             raise RuntimeError("Conflicting edge detection events already exist for this GPIO channel")
         r0, f0 = st["n_rise"], st["n_fall"]
+        st["waiters"] = st.get("waiters", 0) + 1
     deadline = None if timeout is None else time.time() + timeout / 1000.0
-    while True:
+    try:
+        while True:
+            with core.LOCK:
+                st = core.PINS.get(b)
+                if st is None:
+                    return None
+                rose, fell = st["n_rise"] > r0, st["n_fall"] > f0
+            if (edge in (RISING, BOTH) and rose) or (edge in (FALLING, BOTH) and fell):
+                return channel
+            if deadline is not None and time.time() >= deadline:
+                return None
+            time.sleep(0.001)
+    finally:
         with core.LOCK:
             st = core.PINS.get(b)
-            if st is None:
-                return None
-            rose, fell = st["n_rise"] > r0, st["n_fall"] > f0
-        if (edge in (RISING, BOTH) and rose) or (edge in (FALLING, BOTH) and fell):
-            return channel
-        if deadline is not None and time.time() >= deadline:
-            return None
-        time.sleep(0.001)
+            if st is not None:
+                st["waiters"] = max(0, st.get("waiters", 1) - 1)
 
 
 def gpio_function(channel):

@@ -1,0 +1,43 @@
+{
+ "format": "rpi-sim-1",
+ "next": 7,
+ "objects": {
+  "o1": {
+   "type": "wire",
+   "a": "pi:6",
+   "b": "bb:T-:1",
+   "color": "#1c1c1c"
+  },
+  "o2": {
+   "type": "sonar",
+   "x": 640,
+   "y": 520,
+   "cm": 50,
+   "name": "US1"
+  },
+  "o3": {
+   "type": "wire",
+   "a": "m:o2:VCC",
+   "b": "pi:2",
+   "color": "#d42020"
+  },
+  "o4": {
+   "type": "wire",
+   "a": "m:o2:GND",
+   "b": "bb:T-:24",
+   "color": "#1c1c1c"
+  },
+  "o5": {
+   "type": "wire",
+   "a": "m:o2:TRIG",
+   "b": "pi:16",
+   "color": "#e8c400"
+  },
+  "o6": {
+   "type": "wire",
+   "a": "m:o2:ECHO",
+   "b": "pi:18",
+   "color": "#17a03a"
+  }
+ }
+}

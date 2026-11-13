@@ -45,7 +45,7 @@ MAX_SPAN = {"led": 90, "abuz": 90, "pbuz": 90, "btn": 90, "res": 175}
 
 MODES = [("use", "🖐 Use"), ("wire", "Wire"), ("led", "LED"), ("rgb", "RGB LED"), ("res", "Resistor"),
          ("btn", "Button"), ("abuz", "Active buzzer"), ("pbuz", "Passive buzzer"),
-         ("pir", "PIR"), ("servo", "Servo"), ("del", "✖ Delete")]
+         ("pir", "PIR"), ("servo", "Servo"), ("sonar", "Ultrasonic"), ("del", "✖ Delete")]
 FIRST_HINT = {
     "wire": "Wire: click the first end (Pi pin, breadboard hole or PIR terminal).",
     "led": "LED: click the hole for the ANODE (+, longer leg).",
@@ -55,8 +55,9 @@ FIRST_HINT = {
     "abuz": "Active buzzer: click the hole for the + leg.",
     "pbuz": "Passive buzzer: click the hole for the + leg.",
     "pir": "PIR: click an empty spot in the grey area below the breadboard.",
+    "sonar": "Ultrasonic sensor: click an empty spot in the grey area. Scroll over it to set the distance.",
     "servo": "Servo: click an empty spot in the grey area. Wires: GND, VCC (5V), SIG (50 Hz PWM).",
-    "use": "Hold a button / PIR (or its number key 1-9) to activate it, drag any part to move it. Right-click deletes. "
+    "use": "Hold a button / PIR (or key 1-9), drag parts to move them, scroll over a distance sensor. Right-click deletes. "
            "Hover a hole to see everything connected to it.",
     "del": "Click a component or wire to delete it (right-click deletes in any mode).",
 }
@@ -242,6 +243,9 @@ class App:
         c.bind("<ButtonPress-1>", self._on_down)
         c.bind("<ButtonRelease-1>", self._on_up)
         c.bind("<B1-Motion>", self._on_drag)
+        c.bind("<MouseWheel>", self._on_wheel)                       # Windows / macOS
+        c.bind("<Button-4>", lambda e: self._on_wheel(e, +1))        # X11 scroll up
+        c.bind("<Button-5>", lambda e: self._on_wheel(e, -1))        # X11 scroll down
         c.bind("<Button-3>", self._on_right)
         c.bind("<Motion>", self._on_motion)
         self.root.bind("<Escape>", lambda e: self._cancel())
@@ -419,7 +423,8 @@ class App:
                 continue
             cx, cy = self._body_center(o)
             if o["type"] in core.MODULES:
-                if abs(x - cx) <= 38 and abs(y - cy) <= 34:
+                hw = 38 if o["type"] == "pir" else 48
+                if abs(x - cx) <= hw and abs(y - cy) <= 34:
                     return oid
                 continue
             d = math.hypot(x - cx, y - cy)
@@ -592,6 +597,17 @@ class App:
         if oid:
             core.remove_obj(oid)
 
+    def _on_wheel(self, e, direction=None):
+        oid = self.obj_at(e.x, e.y)
+        o = core.OBJ.get(oid) if oid else None
+        if not o or o["type"] != "sonar":
+            return
+        if direction is None:
+            direction = 1 if e.delta > 0 else -1
+        step = 1 if (getattr(e, "state", 0) & 0x1) else 5           # Shift = fine steps
+        core.set_distance(oid, o.get("cm", 50) + direction * step)
+        self._hint(f"{o['name']} sees an object at {core.OBJ[oid]['cm']} cm.")
+
     def _on_motion(self, e):
         self.mouse = (e.x, e.y)
         pt = point_at(e.x, e.y)
@@ -630,6 +646,9 @@ class App:
                 continue
             if t == "servo":
                 self._draw_servo(oid, o, ev)
+                continue
+            if t == "sonar":
+                self._draw_sonar(oid, o, ev)
                 continue
             (x1, y1), (x2, y2) = pt_pos(o["legs"][0]), pt_pos(o["legs"][1])
             mx, my = (x1 + x2) / 2, (y1 + y2) / 2
@@ -757,6 +776,32 @@ class App:
         if state == "burn":
             c.create_text(mx, by - 24, text="burning!", fill="#ff5050", font=("Segoe UI", 8, "bold"), tags="dyn")
         c.create_oval(mx - 13, by - 13, mx + 13, by + 13, fill=fill, outline="#888", tags="dyn")
+
+    def _draw_sonar(self, oid, o, ev):
+        c = self.cv
+        x, y = o["x"], o["y"]
+        powered = ev.get("sonar", {}).get(oid, (False, 0, 50))[0]
+        cm = o.get("cm", 50)
+        c.create_rectangle(x - 46, y - 24, x + 46, y + 26, fill="#1d5fa8", outline="#0e3866", width=2, tags="dyn")
+        for ex in (x - 23, x + 23):
+            c.create_oval(ex - 16, y - 14, ex + 16, y + 18, fill="#c9ccd1", outline="#7d8288", width=2, tags="dyn")
+            c.create_oval(ex - 9, y - 7, ex + 9, y + 11, fill="#3a3d42", outline="", tags="dyn")
+        c.create_text(x, y - 18, text="HC-SR04", fill="#e8f0ff", font=("Segoe UI", 6, "bold"), tags="dyn")
+        c.create_oval(x - 3, y + 16, x + 3, y + 22, fill="#ff4040" if powered else "#401010",
+                      outline="", tags="dyn")
+        # sound waves for a moment after each ping
+        s = core.SONAR.get(oid)
+        if s and time.perf_counter() - s["start"] < 0.15:
+            for r in (8, 14, 20):
+                c.create_arc(x - r, y - 30 - r, x + r, y - 30 + r, start=30, extent=120,
+                             style="arc", outline="#9ad0ff", width=2, tags="dyn")
+        c.create_text(x + 50, y - 30, anchor="e", text=f"↕ {cm} cm", fill="#ffffff",
+                      font=("Segoe UI", 8, "bold"), tags="dyn")
+        for t in core.MODULE_TERMS["sonar"]:
+            tx, ty = pt_pos(f"m:{oid}:{t}")
+            c.create_line(tx, y + 26, tx, ty, fill="#c9a227", width=3, tags="dyn")
+            c.create_rectangle(tx - 4, ty - 4, tx + 4, ty + 4, fill="#e0b830", outline="#000", tags="dyn")
+            c.create_text(tx, ty + 13, text=t, fill="#cfd3da", font=("Segoe UI", 7), tags="dyn")
 
     SERVO_SPEED = 15.0   # degrees per frame (~375°/s, about an SG90 at 5V)
 
