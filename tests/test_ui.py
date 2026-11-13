@@ -121,6 +121,35 @@ class EditorTest(unittest.TestCase):
 
 
 @unittest.skipIf(_root is None, "no GUI available")
+class DrawingTest(unittest.TestCase):
+    """Render every preset with all outputs driven, to catch drawing errors."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = _ui.App(_root)
+
+    def test_every_preset_renders(self):
+        import glob
+        for path in sorted(glob.glob(os.path.join(EXAMPLES, "*.json"))):
+            with self.subTest(os.path.basename(path)):
+                GPIO.cleanup()
+                core.MODE[0] = None
+                core.load_preset(path)
+                GPIO.setmode(GPIO.BCM)
+                for b in (4, 17, 18, 22, 23, 27):
+                    GPIO.setup(b, GPIO.OUT, initial=GPIO.HIGH)
+                for oid, o in core.OBJ.items():
+                    if o["type"] == "pir":
+                        core.pir_hold(oid, True)
+                objs = [(k, dict(v)) for k, v in core.OBJ.items()]
+                self.app._draw_dynamic(core.evaluate(), objs)
+                self.app._update_status(core.evaluate())
+                self.assertTrue(self.app.cv.find_withtag("dyn"))
+                for oid in list(core.PIR_STATE):
+                    core.pir_cancel(oid)
+
+
+@unittest.skipIf(_root is None, "no GUI available")
 class KeyboardTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
