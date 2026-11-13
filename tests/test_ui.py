@@ -120,5 +120,66 @@ class EditorTest(unittest.TestCase):
         self.assertEqual(core.OBJ[btn]["legs"], ["bb:a:23", "bb:a:25"])
 
 
+@unittest.skipIf(_root is None, "no GUI available")
+class KeyboardTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = _ui.App(_root)
+
+    def setUp(self):
+        GPIO.cleanup()
+        core.MODE[0] = None
+        core.load_preset(os.path.join(EXAMPLES, "09_motion_alarm.json"))
+        btn = core.add_obj({"type": "btn", "legs": ["bb:j:3", "bb:j:5"]})
+        core.add_obj({"type": "wire", "a": "pi:13", "b": "bb:i:3", "color": "#2a6bd6"})
+        core.add_obj({"type": "wire", "a": "bb:i:5", "b": "bb:B-:5", "color": "#1c1c1c"})
+        core.add_obj({"type": "wire", "a": "bb:B-:30", "b": "bb:T-:30", "color": "#1c1c1c"})
+        self.btn, self.pir = btn, first("pir")
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(27, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        GPIO.setup(4, GPIO.IN)
+
+    def key(self, ch, down=True):
+        e = types.SimpleNamespace(char=ch, state=0)
+        (self.app._key_down if down else self.app._key_up)(e)
+
+    def settle(self):
+        import time
+        time.sleep(0.08)
+        _root.update()
+
+    def test_order_buttons_then_pirs(self):
+        self.assertEqual(self.app.input_order(), [self.btn, self.pir])
+
+    def test_key_holds_button(self):
+        self.key("1")
+        self.assertEqual(GPIO.input(27), 0)
+        self.key("1")                     # Windows auto-repeat
+        self.key("1", down=False)
+        self.settle()
+        self.assertEqual(GPIO.input(27), 1)
+
+    def test_x11_style_autorepeat_does_not_release(self):
+        self.key("1")
+        self.key("1", down=False)         # X11 sends release+press pairs while held
+        self.key("1")
+        self.settle()
+        self.assertEqual(GPIO.input(27), 0)
+        self.key("1", down=False)
+        self.settle()
+        self.assertEqual(GPIO.input(27), 1)
+
+    def test_key_triggers_pir(self):
+        self.key("2")
+        self.assertEqual(GPIO.input(4), 1)
+        self.key("2", down=False)
+        self.settle()
+        core.pir_cancel(self.pir)
+
+    def test_unassigned_key_is_ignored(self):
+        self.key("7")
+        self.assertEqual(self.app._keys_held, {})
+
+
 if __name__ == "__main__":
     unittest.main()

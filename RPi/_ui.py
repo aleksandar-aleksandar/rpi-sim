@@ -54,7 +54,7 @@ FIRST_HINT = {
     "abuz": "Active buzzer: click the hole for the + leg.",
     "pbuz": "Passive buzzer: click the hole for the + leg.",
     "pir": "PIR: click an empty spot in the grey area below the breadboard.",
-    "use": "Hold a button / PIR to activate it, drag any part to move it. Right-click deletes. "
+    "use": "Hold a button / PIR (or its number key 1-9) to activate it, drag any part to move it. Right-click deletes. "
            "Hover a hole to see everything connected to it.",
     "del": "Click a component or wire to delete it (right-click deletes in any mode).",
 }
@@ -169,6 +169,8 @@ class App:
         self.hover_ver = -1
         self.holding = None
         self.drag = None            # {"oid", "x0", "y0", "active", "target", "valid"}
+        self._keys_held = {}        # key char -> oid held via keyboard
+        self._key_release_jobs = {}
         self.last_eval = None
         self._status_txt = ""
         self._build()
@@ -233,10 +235,59 @@ class App:
         c.bind("<Button-3>", self._on_right)
         c.bind("<Motion>", self._on_motion)
         self.root.bind("<Escape>", lambda e: self._cancel())
+        self.root.bind("<KeyPress>", self._key_down)
+        self.root.bind("<KeyRelease>", self._key_up)
         for seq in ("<Control-z>", "<Control-Z>"):
             self.root.bind(seq, self._undo_key)
         for seq in ("<Control-y>", "<Control-Y>", "<Control-Shift-z>", "<Control-Shift-Z>"):
             self.root.bind(seq, lambda e: self._redo())
+
+    # ---------- keyboard-held inputs (1..9) ----------
+    @staticmethod
+    def input_order():
+        """Buttons, then PIRs, in name order. Key N holds input N."""
+        def key(item):
+            oid, o = item
+            name = o.get("name", "")
+            num = int("".join(ch for ch in name if ch.isdigit()) or 0)
+            return (0 if o["type"] == "btn" else 1, num, name)
+        items = [(k, o) for k, o in core.OBJ.items() if o["type"] in ("btn", "pir")]
+        return [k for k, _ in sorted(items, key=key)][:9]
+
+    def _key_down(self, e):
+        ch = getattr(e, "char", "")
+        if not ch or ch not in "123456789" or (getattr(e, "state", 0) & 0x4):
+            return
+        pending = self._key_release_jobs.pop(ch, None)
+        if pending:                       # X11 auto-repeat: release+press pair
+            self.root.after_cancel(pending)
+            return
+        if ch in self._keys_held:         # Windows auto-repeat: repeated press
+            return
+        order = self.input_order()
+        idx = int(ch) - 1
+        if idx >= len(order):
+            return
+        oid = order[idx]
+        self._keys_held[ch] = oid
+        if core.OBJ[oid]["type"] == "btn":
+            core.press(oid)
+        else:
+            core.pir_hold(oid, True)
+
+    def _key_up(self, e):
+        ch = getattr(e, "char", "")
+        if ch in self._keys_held and ch not in self._key_release_jobs:
+            self._key_release_jobs[ch] = self.root.after(40, lambda: self._release_key(ch))
+
+    def _release_key(self, ch):
+        self._key_release_jobs.pop(ch, None)
+        oid = self._keys_held.pop(ch, None)
+        o = core.OBJ.get(oid) if oid else None
+        if o and o["type"] == "btn":
+            core.release(oid)
+        elif o and o["type"] == "pir":
+            core.pir_hold(oid, False)
 
     def _undo_key(self, e):
         if e.state & 0x1:      # Shift held -> redo
@@ -622,6 +673,20 @@ class App:
         for q in self.hover_pts:
             qx, qy = pt_pos(q)
             c.create_oval(qx - 6, qy - 6, qx + 6, qy + 6, outline="#00e5ff", width=2, tags="dyn")
+        # keyboard shortcut badges for inputs
+        for i, oid in enumerate(self.input_order()):
+            o = core.OBJ.get(oid)
+            if not o:
+                continue
+            if o["type"] == "pir":
+                bx, by = o["x"] - 28, o["y"] - 24
+            else:
+                cx, cy = self._body_center(o)
+                bx, by = cx + 15, cy - 15
+            held = oid in self._keys_held.values()
+            c.create_rectangle(bx - 7, by - 7, bx + 7, by + 7, fill="#ffd54a" if held else "#e8e8e8",
+                               outline="#555", tags="dyn")
+            c.create_text(bx, by, text=str(i + 1), font=("Segoe UI", 7, "bold"), fill="#222", tags="dyn")
         # drag preview
         d = self.drag
         if d and d["active"] and d["target"]:
