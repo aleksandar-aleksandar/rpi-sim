@@ -60,7 +60,7 @@ tells you why.
 
 ## Quick start
 
-Requirements: **Python 3.9+** with tkinter (included in the standard Windows and
+Requirements: **Python 3.10+** with tkinter (included in the standard Windows and
 macOS installers). There are no other dependencies.
 
 ```bash
@@ -200,7 +200,7 @@ python -m unittest discover -s tests -v
 
 The tests are standard-library only and run headless (`RPISIM_HEADLESS=1`).
 The editor tests need a display and skip automatically without one. CI runs
-everything on Linux (under xvfb) and Windows, for Python 3.9–3.14.
+everything on Linux (under xvfb) and Windows, for Python 3.10–3.14.
 
 ## Limitations
 
