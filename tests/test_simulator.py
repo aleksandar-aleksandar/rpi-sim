@@ -157,6 +157,43 @@ class PresetsTest(Base):
             self.assertIn(needle, text)
 
 
+class RgbLedTest(Base):
+    preset = "11_rgb_led"
+
+    def setUp(self):
+        super().setUp()
+        GPIO.setup([17, 27, 22], GPIO.OUT)
+        self.rgb = first("rgb")
+
+    def color(self):
+        return self.ev()["leds"][self.rgb]
+
+    def test_single_channels(self):
+        self.assertEqual(self.color(), ("off", (0.0, 0.0, 0.0)))
+        GPIO.output(17, GPIO.HIGH)
+        self.assertEqual(self.color(), ("on", (1.0, 0.0, 0.0)))
+        GPIO.output(22, GPIO.HIGH)
+        self.assertEqual(self.color(), ("on", (1.0, 0.0, 1.0)))
+        self.assertEqual(self.ev()["warnings"], [])
+
+    def test_pwm_mixing(self):
+        g = GPIO.PWM(27, 100)
+        g.start(40)
+        state, (r, gg, b) = self.color()
+        self.assertEqual(state, "on")
+        self.assertAlmostEqual(gg, 0.4)
+        g.stop()
+
+    def test_missing_resistor_burns(self):
+        res = next(k for k, o in core.OBJ.items() if o["type"] == "res" and o["legs"][0] == "bb:c:12")
+        legs = core.OBJ[res]["legs"]
+        core.remove_obj(res)
+        core.add_obj({"type": "wire", "a": legs[0], "b": legs[1], "color": "#000000"})
+        GPIO.output(17, GPIO.HIGH)
+        self.assertEqual(self.color()[0], "burn")
+        self.assertTrue(any("R channel" in w for w in self.ev()["warnings"]))
+
+
 class UndoTest(Base):
     def test_undo_redo_edits(self):
         core.clear_history()

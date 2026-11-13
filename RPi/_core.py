@@ -114,8 +114,8 @@ PRESSED = set()     # buttons currently held down
 PIR_STATE = {}      # id -> [held, high_until]
 PIR_TAIL = 1.5      # PIR keeps OUT high this many seconds after motion
 
-NAME_PREFIX = {"led": "LED", "res": "R", "btn": "SW", "abuz": "BZ", "pbuz": "BZ", "pir": "PIR"}
-TYPE_NAME = {"led": "LED", "res": "resistor", "btn": "button", "abuz": "active buzzer",
+NAME_PREFIX = {"led": "LED", "rgb": "RGB", "res": "R", "btn": "SW", "abuz": "BZ", "pbuz": "BZ", "pir": "PIR"}
+TYPE_NAME = {"led": "LED", "rgb": "RGB LED", "res": "resistor", "btn": "button", "abuz": "active buzzer",
              "pbuz": "passive buzzer", "pir": "PIR sensor", "wire": "wire"}
 
 
@@ -526,6 +526,9 @@ def evaluate():
         leds, buz = {}, {}
         for oid, o in OBJ.items():
             t = o["type"]
+            if t == "rgb":
+                leds[oid] = _eval_rgb(o, N, resolve, warnings)
+                continue
             if t not in ("led", "abuz", "pbuz", "btn"):
                 continue
             n0, n1 = N(o["legs"][0]), N(o["legs"][1])
@@ -585,6 +588,36 @@ def evaluate():
                                 for pt in (o["a"], o["b"])))
         return {"leds": leds, "buz": buz, "pir": pir, "inputs": inputs,
                 "warnings": list(dict.fromkeys(warnings)), "gnd_wires": gnd_wires}
+
+
+RGB_LEGS = ("R", "K", "G", "B")     # common-cathode pin order, longest leg = K
+
+
+def _eval_rgb(o, N, resolve, warnings):
+    """Common-cathode RGB LED: each channel is an LED from its leg to K.
+    -> ("off" | "on" | "burn", (r, g, b) brightness 0..1)."""
+    legs = dict(zip(RGB_LEGS, o["legs"]))
+    nk = N(legs["K"])
+    k = resolve(nk)
+    state, rgb = "off", []
+    for ch in "RGB":
+        na = N(legs[ch])
+        level = 0.0
+        if na == nk:
+            warnings.append(f"{o['name']}: {ch} leg is shorted to the cathode.")
+        elif k:
+            a = resolve(na)
+            if a and a[0] - k[0] >= 1.8:
+                level = a[2][1] / 100.0 if a[2] else 1.0
+                if a[1] + k[1] == 0:
+                    state = "burn"
+                    warnings.append(f"{o['name']}: no resistor on the {ch} channel – burning out!")
+                elif state == "off":
+                    state = "on"
+            elif a and a[0] - k[0] <= -1.8:
+                warnings.append(f"{o['name']}: the cathode (K, 2nd leg) must go to GND for a common-cathode LED.")
+        rgb.append(level)
+    return state, tuple(rgb)
 
 
 def update_inputs():

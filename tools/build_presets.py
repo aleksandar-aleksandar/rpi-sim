@@ -14,7 +14,7 @@ OUT_DIR = os.path.join(ROOT, "examples")
 
 RED, BLACK, BLUE, GREEN, YELLOW, ORANGE = ("#d42020", "#1c1c1c", "#2a6bd6",
                                            "#17a03a", "#e8c400", "#f07a00")
-PREFIX = {"led": "LED", "res": "R", "btn": "SW", "abuz": "BZ", "pbuz": "BZ", "pir": "PIR"}
+PREFIX = {"led": "LED", "rgb": "RGB", "res": "R", "btn": "SW", "abuz": "BZ", "pbuz": "BZ", "pir": "PIR"}
 
 
 class Circuit:
@@ -62,6 +62,18 @@ class Circuit:
         self.part(kind, f"bb:a:{col}", f"bb:a:{col + 2}")
         self.wire(f"pi:{phys_pin}", f"bb:b:{col}", YELLOW)
         self.wire(f"bb:b:{col + 2}", f"bb:T-:{col + 2}", BLACK)
+
+    def rgb_led(self, r_pin, g_pin, b_pin, col):
+        """Common-cathode RGB LED in a{col}..a{col+3} (R, K, G, B).
+        Each colour: GPIO -> g{x} | 220 ohm f{x}..c{x} across the gap | leg. K -> GND rail."""
+        self.part_n("rgb", [f"bb:a:{col + i}" for i in range(4)])
+        for x, pin, color in ((col, r_pin, RED), (col + 2, g_pin, GREEN), (col + 3, b_pin, BLUE)):
+            self.part("res", f"bb:c:{x}", f"bb:f:{x}", ohms=220)
+            self.wire(f"pi:{pin}", f"bb:g:{x}", color)
+        self.wire(f"bb:b:{col + 1}", f"bb:T-:{col + 1}", BLACK)
+
+    def part_n(self, kind, legs, **extra):
+        return self._add({"type": kind, "legs": list(legs), **extra})
 
     def pir_module(self, out_phys_pin, x=620, y=520):
         """PIR: VCC -> 5V (pin 2), GND -> GND rail, OUT -> GPIO."""
@@ -119,6 +131,9 @@ def build():
     c.wire("pi:16", "bb:b:19", GREEN)
     c.part("res", "bb:b:18", "bb:T-:18", ohms=220)
     c.save("10_common_mistakes")
+
+    c = Circuit(); c.ground(); c.rgb_led(11, 13, 15, 12)   # R=GPIO17, G=GPIO27, B=GPIO22
+    c.save("11_rgb_led")
 
 
 if __name__ == "__main__":

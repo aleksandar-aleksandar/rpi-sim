@@ -43,12 +43,13 @@ RES_BANDS = {220: ["#d00", "#d00", "#111", "#111", "#8b4513"],
              10000: ["#8b4513", "#111", "#111", "#d00", "#8b4513"]}
 MAX_SPAN = {"led": 90, "abuz": 90, "pbuz": 90, "btn": 90, "res": 175}
 
-MODES = [("use", "🖐 Use"), ("wire", "Wire"), ("led", "LED"), ("res", "Resistor"),
+MODES = [("use", "🖐 Use"), ("wire", "Wire"), ("led", "LED"), ("rgb", "RGB LED"), ("res", "Resistor"),
          ("btn", "Button"), ("abuz", "Active buzzer"), ("pbuz", "Passive buzzer"),
          ("pir", "PIR"), ("del", "✖ Delete")]
 FIRST_HINT = {
     "wire": "Wire: click the first end (Pi pin, breadboard hole or PIR terminal).",
     "led": "LED: click the hole for the ANODE (+, longer leg).",
+    "rgb": "RGB LED (common cathode): click the hole for the R leg – legs R, K, G, B fill 4 holes in a row.",
     "res": "Resistor: click the hole for the first leg.",
     "btn": "Button: click the hole for the first leg.",
     "abuz": "Active buzzer: click the hole for the + leg.",
@@ -399,8 +400,8 @@ class App:
     def _body_center(self, o):
         if o["type"] == "pir":
             return o["x"], o["y"]
-        (x1, y1), (x2, y2) = pt_pos(o["legs"][0]), pt_pos(o["legs"][1])
-        return (x1 + x2) / 2, (y1 + y2) / 2
+        pts = [pt_pos(q) for q in o["legs"]]
+        return sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
 
     def obj_at(self, x, y):
         best, bd = None, 1e9
@@ -463,6 +464,9 @@ class App:
         if pt is None:
             self._hint("Click exactly on a hole, pin or terminal.", err=True)
             return
+        if m == "rgb":
+            self._place_rgb(pt)
+            return
         if m != "wire" and not pt.startswith("bb:"):
             self._hint("Component legs go into breadboard holes – connect them to the Pi with a wire.", err=True)
             return
@@ -493,6 +497,23 @@ class App:
         core.add_obj(o)
         self.pending = None
         self._hint(FIRST_HINT[m])
+
+    def _place_rgb(self, pt):
+        k = pt.split(":")
+        if k[0] != "bb" or k[1] in core.RAILS:
+            self._hint("Put the RGB LED in the main area of the breadboard (rows a–j).", err=True)
+            return
+        row, col = k[1], int(k[2])
+        legs = [f"bb:{row}:{col + i}" for i in range(4)]
+        if col + 3 > core.COLS:
+            self._hint("Not enough room – the RGB LED needs 4 holes in a row.", err=True)
+            return
+        taken = [q for q in legs if core.occupant(q)]
+        if taken:
+            self._hint(f"{describe(taken[0])} is already taken.", err=True)
+            return
+        core.add_obj({"type": "rgb", "legs": legs})
+        self._hint("RGB LED placed (R, K, G, B). Give each colour its own resistor; K goes to GND.")
 
     def _drag_target(self, oid, dx, dy):
         """-> (changes, valid) for moving object `oid` by (dx, dy) pixels."""
@@ -595,6 +616,9 @@ class App:
                 continue
             if t == "pir":
                 self._draw_pir(oid, o, ev)
+                continue
+            if t == "rgb":
+                self._draw_rgb(oid, o, ev)
                 continue
             (x1, y1), (x2, y2) = pt_pos(o["legs"][0]), pt_pos(o["legs"][1])
             mx, my = (x1 + x2) / 2, (y1 + y2) / 2
@@ -703,6 +727,25 @@ class App:
             px, py = pt_pos(self.pending)
             c.create_oval(px - 7, py - 7, px + 7, py + 7, outline="#ff3df2", width=3, tags="dyn")
             c.create_line(px, py, *self.mouse, fill="#ff3df2", dash=(4, 3), tags="dyn")
+
+    def _draw_rgb(self, oid, o, ev):
+        c = self.cv
+        pts = [pt_pos(q) for q in o["legs"]]
+        mx, my = self._body_center(o)
+        by = my - 16                                   # body sits above the leg row
+        for (lx, ly), lbl in zip(pts, core.RGB_LEGS):
+            c.create_line(lx, ly, mx + (lx - mx) * 0.35, by + 8, fill="#9a9a9a", width=2, tags="dyn")
+            c.create_text(lx, ly + 11, text=lbl, font=("Segoe UI", 6, "bold"),
+                          fill={"R": "#d42020", "G": "#17a03a", "B": "#2a6bd6"}.get(lbl, "#444"), tags="dyn")
+        state, (r, g, b) = ev["leds"].get(oid, ("off", (0, 0, 0)))
+        if state == "off" or max(r, g, b) == 0:
+            fill = "#d9d9d9"
+        else:
+            fill = "#%02x%02x%02x" % tuple(int(70 + 185 * v) if v else 40 for v in (r, g, b))
+            c.create_oval(mx - 19, by - 19, mx + 19, by + 19, outline=fill, width=3, tags="dyn")
+        if state == "burn":
+            c.create_text(mx, by - 24, text="burning!", fill="#ff5050", font=("Segoe UI", 8, "bold"), tags="dyn")
+        c.create_oval(mx - 13, by - 13, mx + 13, by + 13, fill=fill, outline="#888", tags="dyn")
 
     def _draw_pir(self, oid, o, ev):
         c = self.cv
