@@ -45,7 +45,7 @@ MAX_SPAN = {"led": 90, "abuz": 90, "pbuz": 90, "btn": 90, "res": 175}
 
 MODES = [("use", "🖐 Use"), ("wire", "Wire"), ("led", "LED"), ("rgb", "RGB LED"), ("res", "Resistor"),
          ("btn", "Button"), ("abuz", "Active buzzer"), ("pbuz", "Passive buzzer"),
-         ("pir", "PIR"), ("del", "✖ Delete")]
+         ("pir", "PIR"), ("servo", "Servo"), ("del", "✖ Delete")]
 FIRST_HINT = {
     "wire": "Wire: click the first end (Pi pin, breadboard hole or PIR terminal).",
     "led": "LED: click the hole for the ANODE (+, longer leg).",
@@ -55,6 +55,7 @@ FIRST_HINT = {
     "abuz": "Active buzzer: click the hole for the + leg.",
     "pbuz": "Passive buzzer: click the hole for the + leg.",
     "pir": "PIR: click an empty spot in the grey area below the breadboard.",
+    "servo": "Servo: click an empty spot in the grey area. Wires: GND, VCC (5V), SIG (50 Hz PWM).",
     "use": "Hold a button / PIR (or its number key 1-9) to activate it, drag any part to move it. Right-click deletes. "
            "Hover a hole to see everything connected to it.",
     "del": "Click a component or wire to delete it (right-click deletes in any mode).",
@@ -79,7 +80,8 @@ def pt_pos(pt):
     o = core.OBJ.get(k[1])
     if o is None:
         return -100, -100
-    off = {"GND": -24, "OUT": 0, "VCC": 24}[k[2]]
+    terms = core.MODULE_TERMS[o["type"]]
+    off = (terms.index(k[2]) - (len(terms) - 1) / 2) * 24
     return o["x"] + off, o["y"] + 44
 
 
@@ -94,8 +96,8 @@ def point_at(x, y):
             if abs(y - yy) <= 8:
                 return f"bb:{r}:{col}"
     for oid, o in list(core.OBJ.items()):
-        if o["type"] == "pir":
-            for t in core.PIR_TERMS:
+        if o["type"] in core.MODULES:
+            for t in core.MODULE_TERMS[o["type"]]:
                 px, py = pt_pos(f"m:{oid}:{t}")
                 if math.hypot(x - px, y - py) <= 8:
                     return f"m:{oid}:{t}"
@@ -112,6 +114,12 @@ def snap_hole(x, y):
         if abs(y - yy) < best:
             row, best = r, abs(y - yy)
     return f"bb:{row}:{col}" if row else None
+
+
+def module_spot_free(x, y, ignore=None):
+    """Modules need ~85 x 90 px of room each."""
+    return all(not (abs(o["x"] - x) < 85 and abs(o["y"] - y) < 90)
+               for k, o in core.OBJ.items() if o["type"] in core.MODULES and k != ignore)
 
 
 def describe(pt):
@@ -171,6 +179,7 @@ class App:
         self.holding = None
         self.drag = None            # {"oid", "x0", "y0", "active", "target", "valid"}
         self._keys_held = {}        # key char -> oid held via keyboard
+        self.servo_disp = {}        # oid -> displayed angle (eased toward the target)
         self._key_release_jobs = {}
         self.last_eval = None
         self._status_txt = ""
@@ -398,7 +407,7 @@ class App:
         self._hint(FIRST_HINT.get(self.mode.get(), ""))
 
     def _body_center(self, o):
-        if o["type"] == "pir":
+        if o["type"] in core.MODULES:
             return o["x"], o["y"]
         pts = [pt_pos(q) for q in o["legs"]]
         return sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
@@ -409,7 +418,7 @@ class App:
             if o["type"] == "wire":
                 continue
             cx, cy = self._body_center(o)
-            if o["type"] == "pir":
+            if o["type"] in core.MODULES:
                 if abs(x - cx) <= 38 and abs(y - cy) <= 34:
                     return oid
                 continue
@@ -449,16 +458,17 @@ class App:
             if oid:
                 core.remove_obj(oid)
             return
-        if m == "pir":
+        if m in core.MODULES:
+            label = core.TYPE_NAME[m]
             if not (BB_RECT[0] + 40 <= x <= BB_RECT[2] - 40 and MOD_TOP + 35 <= y <= CH - 60):
-                self._hint("Place the PIR in the grey area below the breadboard.", err=True)
+                self._hint(f"Place the {label} in the grey area below the breadboard.", err=True)
                 return
-            for o in core.OBJ.values():
-                if o["type"] == "pir" and abs(o["x"] - x) < 85 and abs(o["y"] - y) < 90:
-                    self._hint("Too close to another PIR.", err=True)
-                    return
-            core.add_obj({"type": "pir", "x": x, "y": y})
-            self._hint("PIR placed. Connect GND, OUT and VCC with wires.")
+            if not module_spot_free(x, y):
+                self._hint("Too close to another module.", err=True)
+                return
+            core.add_obj({"type": m, "x": x, "y": y})
+            terms = ", ".join(core.MODULE_TERMS[m])
+            self._hint(f"{label[0].upper() + label[1:]} placed. Connect {terms} with wires.")
             return
         pt = point_at(x, y)
         if pt is None:
@@ -520,12 +530,10 @@ class App:
         o = core.OBJ.get(oid)
         if o is None:
             return None, False
-        if o["type"] == "pir":
+        if o["type"] in core.MODULES:
             nx = min(max(o["x"] + dx, BB_RECT[0] + 40), BB_RECT[2] - 40)
             ny = min(max(o["y"] + dy, MOD_TOP + 35), CH - 60)
-            ok = all(not (abs(p["x"] - nx) < 85 and abs(p["y"] - ny) < 90)
-                     for k, p in core.OBJ.items() if p["type"] == "pir" and k != oid)
-            return {"x": nx, "y": ny}, ok
+            return {"x": nx, "y": ny}, module_spot_free(nx, ny, ignore=oid)
         legs = []
         for leg in o["legs"]:
             lx, ly = pt_pos(leg)
@@ -619,6 +627,9 @@ class App:
                 continue
             if t == "rgb":
                 self._draw_rgb(oid, o, ev)
+                continue
+            if t == "servo":
+                self._draw_servo(oid, o, ev)
                 continue
             (x1, y1), (x2, y2) = pt_pos(o["legs"][0]), pt_pos(o["legs"][1])
             mx, my = (x1 + x2) / 2, (y1 + y2) / 2
@@ -746,6 +757,38 @@ class App:
         if state == "burn":
             c.create_text(mx, by - 24, text="burning!", fill="#ff5050", font=("Segoe UI", 8, "bold"), tags="dyn")
         c.create_oval(mx - 13, by - 13, mx + 13, by + 13, fill=fill, outline="#888", tags="dyn")
+
+    SERVO_SPEED = 15.0   # degrees per frame (~375°/s, about an SG90 at 5V)
+
+    def _draw_servo(self, oid, o, ev):
+        c = self.cv
+        x, y = o["x"], o["y"]
+        powered, target = ev.get("servo", {}).get(oid, (False, None))
+        shown = self.servo_disp.get(oid, 90.0 if target is None else target)
+        if target is not None and powered:
+            step = max(-self.SERVO_SPEED, min(self.SERVO_SPEED, target - shown))
+            shown += step
+        self.servo_disp[oid] = shown
+        # body + mounting tabs
+        c.create_rectangle(x - 46, y - 6, x + 46, y + 4, fill="#1f4fb8", outline="#123070", tags="dyn")
+        c.create_rectangle(x - 34, y - 22, x + 34, y + 26, fill="#2a63d6", outline="#123070", width=2, tags="dyn")
+        c.create_text(x + 10, y + 14, text=o["name"], fill="#cfe0ff", font=("Segoe UI", 7, "bold"), tags="dyn")
+        # horn: 0° points left, 90° up, 180° right
+        hx, hy = x - 12, y - 4
+        rad = math.radians(180.0 - shown)
+        ex, ey = hx + 30 * math.cos(rad), hy - 30 * math.sin(rad)
+        c.create_line(hx, hy, ex, ey, fill="#f4f4f4", width=7, capstyle="round", tags="dyn")
+        c.create_oval(hx - 8, hy - 8, hx + 8, hy + 8, fill="#f4f4f4", outline="#999", tags="dyn")
+        c.create_oval(hx - 2, hy - 2, hx + 2, hy + 2, fill="#666", outline="", tags="dyn")
+        label = f"{shown:.0f}°" if target is not None else "?°"
+        c.create_text(x + 22, y - 10, text=label, fill="#ffffff" if powered else "#8fa6d6",
+                      font=("Segoe UI", 8, "bold"), tags="dyn")
+        # SG90 lead colours: brown GND, red VCC, orange SIG
+        for t, lead in zip(core.MODULE_TERMS["servo"], ("#7a4a1e", "#d42020", "#f07a00")):
+            tx, ty = pt_pos(f"m:{oid}:{t}")
+            c.create_line(tx, y + 26, tx, ty, fill=lead, width=3, tags="dyn")
+            c.create_rectangle(tx - 4, ty - 4, tx + 4, ty + 4, fill="#e0b830", outline="#000", tags="dyn")
+            c.create_text(tx, ty + 13, text=t, fill="#cfd3da", font=("Segoe UI", 7), tags="dyn")
 
     def _draw_pir(self, oid, o, ev):
         c = self.cv

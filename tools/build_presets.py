@@ -14,7 +14,7 @@ OUT_DIR = os.path.join(ROOT, "examples")
 
 RED, BLACK, BLUE, GREEN, YELLOW, ORANGE = ("#d42020", "#1c1c1c", "#2a6bd6",
                                            "#17a03a", "#e8c400", "#f07a00")
-PREFIX = {"led": "LED", "rgb": "RGB", "res": "R", "btn": "SW", "abuz": "BZ", "pbuz": "BZ", "pir": "PIR"}
+PREFIX = {"servo": "SERVO", "led": "LED", "rgb": "RGB", "res": "R", "btn": "SW", "abuz": "BZ", "pbuz": "BZ", "pir": "PIR"}
 
 
 class Circuit:
@@ -82,6 +82,13 @@ class Circuit:
         self.wire(f"m:{oid}:GND", "bb:T-:9", BLACK)
         self.wire(f"m:{oid}:OUT", f"pi:{out_phys_pin}", ORANGE)
 
+    def servo_module(self, sig_phys_pin, x=760, y=520):
+        """Servo: VCC -> 5V (pin 4), GND -> GND rail, SIG -> GPIO."""
+        oid = self._add({"type": "servo", "x": x, "y": y})
+        self.wire(f"m:{oid}:VCC", "pi:4", RED)
+        self.wire(f"m:{oid}:GND", "bb:T-:20", BLACK)
+        self.wire(f"m:{oid}:SIG", f"pi:{sig_phys_pin}", ORANGE)
+
     def save(self, name):
         path = os.path.join(OUT_DIR, f"{name}.json")
         data = {"format": "rpi-sim-1", "next": len(self.objects) + 1, "objects": self.objects}
@@ -134,6 +141,9 @@ def build():
 
     c = Circuit(); c.ground(); c.rgb_led(11, 13, 15, 12)   # R=GPIO17, G=GPIO27, B=GPIO22
     c.save("11_rgb_led")
+
+    c = Circuit(); c.ground(); c.servo_module(12)          # SIG = GPIO18
+    c.save("12_servo")
 
 
 if __name__ == "__main__":

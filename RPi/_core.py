@@ -75,6 +75,9 @@ BOT_ROWS = "fghij"
 RAILS = ("T-", "T+", "B-", "B+")
 ALL_ROWS = ["T-", "T+", *TOP_ROWS, *BOT_ROWS, "B-", "B+"]
 PIR_TERMS = ("GND", "OUT", "VCC")
+# Modules sit in the module area and expose terminals m:<id>:<TERM> for wires.
+MODULE_TERMS = {"pir": PIR_TERMS, "servo": ("GND", "VCC", "SIG")}
+MODULES = frozenset(MODULE_TERMS)
 
 
 def base(pt):
@@ -101,8 +104,8 @@ def all_points():
     pts = [f"pi:{p}" for p in range(1, 41)]
     pts += [f"bb:{r}:{c}" for r in ALL_ROWS for c in range(1, COLS + 1)]
     for oid, o in OBJ.items():
-        if o["type"] == "pir":
-            pts += [f"m:{oid}:{t}" for t in PIR_TERMS]
+        if o["type"] in MODULES:
+            pts += [f"m:{oid}:{t}" for t in MODULE_TERMS[o["type"]]]
     return pts
 
 
@@ -113,9 +116,10 @@ VERSION = [0]       # bumped on every topology change
 PRESSED = set()     # buttons currently held down
 PIR_STATE = {}      # id -> [held, high_until]
 PIR_TAIL = 1.5      # PIR keeps OUT high this many seconds after motion
+SERVO_ANGLE = {}    # id -> last commanded angle (a servo holds its position)
 
-NAME_PREFIX = {"led": "LED", "rgb": "RGB", "res": "R", "btn": "SW", "abuz": "BZ", "pbuz": "BZ", "pir": "PIR"}
-TYPE_NAME = {"led": "LED", "rgb": "RGB LED", "res": "resistor", "btn": "button", "abuz": "active buzzer",
+NAME_PREFIX = {"servo": "SERVO", "led": "LED", "rgb": "RGB", "res": "R", "btn": "SW", "abuz": "BZ", "pbuz": "BZ", "pir": "PIR"}
+TYPE_NAME = {"servo": "servo", "led": "LED", "rgb": "RGB LED", "res": "resistor", "btn": "button", "abuz": "active buzzer",
              "pbuz": "passive buzzer", "pir": "PIR sensor", "wire": "wire"}
 
 
@@ -135,15 +139,15 @@ CUR_FILE = [_default_file()]
 def points_of(oid, o):
     if o["type"] == "wire":
         return [o["a"], o["b"]]
-    if o["type"] == "pir":
-        return [f"m:{oid}:{t}" for t in PIR_TERMS]
+    if o["type"] in MODULES:
+        return [f"m:{oid}:{t}" for t in MODULE_TERMS[o["type"]]]
     return list(o["legs"])
 
 
 def occupant(pt):
     """Object that physically occupies a hole / pin / terminal (one item per spot)."""
     for oid, o in OBJ.items():
-        if o["type"] == "pir":  # PIR terminals belong to the module but are free for wires
+        if o["type"] in MODULES:  # module terminals belong to the module but are free for wires
             continue
         if pt in points_of(oid, o):
             return oid
@@ -221,7 +225,8 @@ def remove_obj(oid):
         o = OBJ.pop(oid)
         PRESSED.discard(oid)
         PIR_STATE.pop(oid, None)
-        if o["type"] == "pir":  # wires attached to the module go with it
+        SERVO_ANGLE.pop(oid, None)
+        if o["type"] in MODULES:  # wires attached to the module go with it
             terms = set(points_of(oid, o))
             for wid in [w for w, x in OBJ.items() if x["type"] == "wire" and ({x["a"], x["b"]} & terms)]:
                 OBJ.pop(wid, None)
@@ -269,6 +274,7 @@ def _replace_objects(data):
     _NEXT[0] = max([data.get("next", 1)] + [n + 1 for n in nums])
     PRESSED.clear()
     PIR_STATE.clear()
+    SERVO_ANGLE.clear()
 
 
 def load(path=None):
@@ -523,9 +529,12 @@ def evaluate():
                 if any(v >= 4.5 for v, _, _ in s):
                     warnings.append(f"5V applied to GPIO{b} (pin {p}) – this damages a real Pi! GPIO pins are 3.3V max.")
 
-        leds, buz = {}, {}
+        leds, buz, servo = {}, {}, {}
         for oid, o in OBJ.items():
             t = o["type"]
+            if t == "servo":
+                servo[oid] = _eval_servo(oid, o, N, resolve, warnings)
+                continue
             if t == "rgb":
                 leds[oid] = _eval_rgb(o, N, resolve, warnings)
                 continue
@@ -586,8 +595,35 @@ def evaluate():
         gnd_wires = sum(1 for o in OBJ.values() if o["type"] == "wire"
                         and any(pt.startswith("pi:") and PI_PINS[int(pt[3:])][0] == "GND"
                                 for pt in (o["a"], o["b"])))
-        return {"leds": leds, "buz": buz, "pir": pir, "inputs": inputs,
+        return {"leds": leds, "buz": buz, "pir": pir, "servo": servo, "inputs": inputs,
                 "warnings": list(dict.fromkeys(warnings)), "gnd_wires": gnd_wires}
+
+
+SERVO_PULSE = (0.5, 2.5)            # ms for 0° .. 180° (SG90-style hobby servo)
+
+
+def _eval_servo(oid, o, N, resolve, warnings):
+    """-> (powered, angle or None). Angle follows the PWM pulse width on SIG."""
+    name = o["name"]
+    vcc, gnd = resolve(N(f"m:{oid}:VCC")), resolve(N(f"m:{oid}:GND"))
+    supply = vcc[0] - gnd[0] if (vcc and gnd) else 0.0
+    powered = supply >= 4.5
+    if not powered:
+        warnings.append(f"{name}: VCC is at {supply:.1f}V – servos need 5V." if supply > 2
+                        else f"{name}: not powered (VCC → 5V, GND → GND).")
+    sig = resolve(N(f"m:{oid}:SIG"))
+    if powered and sig and sig[2]:
+        freq, duty = sig[2]
+        pulse = duty / 100.0 * 1000.0 / freq
+        lo, hi = SERVO_PULSE
+        if not 40 <= freq <= 60:
+            warnings.append(f"{name}: PWM is {freq:g} Hz – hobby servos expect 50 Hz.")
+        elif lo - 0.1 <= pulse <= hi + 0.1:
+            SERVO_ANGLE[oid] = max(0.0, min(180.0, (pulse - lo) / (hi - lo) * 180.0))
+        else:
+            warnings.append(f"{name}: pulse is {pulse:.2f} ms – expected {lo}–{hi} ms "
+                            f"(duty {lo * 5:g}–{hi * 5:g} % at 50 Hz).")
+    return powered, SERVO_ANGLE.get(oid)
 
 
 RGB_LEGS = ("R", "K", "G", "B")     # common-cathode pin order, longest leg = K

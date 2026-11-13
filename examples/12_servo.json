@@ -1,0 +1,36 @@
+{
+ "format": "rpi-sim-1",
+ "next": 6,
+ "objects": {
+  "o1": {
+   "type": "wire",
+   "a": "pi:6",
+   "b": "bb:T-:1",
+   "color": "#1c1c1c"
+  },
+  "o2": {
+   "type": "servo",
+   "x": 760,
+   "y": 520,
+   "name": "SERVO1"
+  },
+  "o3": {
+   "type": "wire",
+   "a": "m:o2:VCC",
+   "b": "pi:4",
+   "color": "#d42020"
+  },
+  "o4": {
+   "type": "wire",
+   "a": "m:o2:GND",
+   "b": "bb:T-:20",
+   "color": "#1c1c1c"
+  },
+  "o5": {
+   "type": "wire",
+   "a": "m:o2:SIG",
+   "b": "pi:12",
+   "color": "#f07a00"
+  }
+ }
+}

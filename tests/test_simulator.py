@@ -194,6 +194,49 @@ class RgbLedTest(Base):
         self.assertTrue(any("R channel" in w for w in self.ev()["warnings"]))
 
 
+class ServoTest(Base):
+    preset = "12_servo"
+
+    def setUp(self):
+        super().setUp()
+        GPIO.setup(18, GPIO.OUT)
+        self.pwm = GPIO.PWM(18, 50)
+        self.servo = first("servo")
+
+    def tearDown(self):
+        self.pwm.stop()
+
+    def state(self):
+        return self.ev()["servo"][self.servo]
+
+    def test_duty_cycle_sets_angle(self):
+        self.assertEqual(self.state(), (True, None))          # no pulse yet
+        for duty, angle in ((2.5, 0), (7.5, 90), (12.5, 180)):
+            self.pwm.start(duty) if duty == 2.5 else self.pwm.ChangeDutyCycle(duty)
+            self.assertAlmostEqual(self.state()[1], angle)
+        self.assertEqual(self.ev()["warnings"], [])
+
+    def test_holds_position_without_signal(self):
+        self.pwm.start(7.5)
+        self.ev()
+        self.pwm.stop()
+        self.assertAlmostEqual(self.state()[1], 90)
+
+    def test_wrong_frequency_warns(self):
+        self.pwm.ChangeFrequency(1000)
+        self.pwm.start(50)
+        self.assertTrue(any("50 Hz" in w for w in self.ev()["warnings"]))
+
+    def test_needs_5v(self):
+        vcc = next(k for k, o in core.OBJ.items() if o["type"] == "wire" and o["b"] == "pi:4")
+        core.remove_obj(vcc)
+        core.add_obj({"type": "wire", "a": f"m:{self.servo}:VCC", "b": "pi:1", "color": "#d42020"})
+        self.pwm.start(7.5)
+        powered, _ = self.state()
+        self.assertFalse(powered)
+        self.assertTrue(any("servos need 5V" in w for w in self.ev()["warnings"]))
+
+
 class UndoTest(Base):
     def test_undo_redo_edits(self):
         core.clear_history()

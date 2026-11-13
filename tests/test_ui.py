@@ -95,6 +95,22 @@ class EditorTest(unittest.TestCase):
         GPIO.setup(4, GPIO.IN)
         self.assertEqual(core.evaluate()["pir"][pir], (True, False))   # still wired + powered
 
+    def test_place_and_move_modules(self):
+        core.clear_all()
+        self.app.mode.set("servo")
+        self.app._on_down(ev(600, 520))
+        self.app.mode.set("pir")
+        self.app._on_down(ev(620, 540))            # overlaps the servo -> rejected
+        self.assertIn("Too close", self.app.hint.cget("text"))
+        self.app._on_down(ev(800, 520))
+        types_ = sorted(o["type"] for o in core.OBJ.values())
+        self.assertEqual(types_, ["pir", "servo"])
+        servo = first("servo")
+        self.assertEqual(_ui.point_at(*_ui.pt_pos(f"m:{servo}:SIG")), f"m:{servo}:SIG")
+        self.app.mode.set("use")
+        self.drag(servo, 0, 40)
+        self.assertEqual(core.OBJ[servo]["y"], 560)
+
     def test_click_without_drag_still_presses(self):
         self.load("02_button_led")
         GPIO.setmode(GPIO.BCM)
