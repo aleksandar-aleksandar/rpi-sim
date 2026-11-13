@@ -180,6 +180,16 @@ def remove_obj(oid):
         _bump()
 
 
+def move_obj(oid, changes):
+    """Move a component: `changes` is {"legs": [...]} or {"x": .., "y": ..}."""
+    with LOCK:
+        o = OBJ.get(oid)
+        if o is None:
+            return
+        o.update(changes)
+        _bump()
+
+
 def clear_all():
     with LOCK:
         OBJ.clear()
@@ -274,6 +284,13 @@ def pir_hold(oid, held):
         s[0] = held
         if not held:
             s[1] = time.time() + PIR_TAIL
+    update_inputs()
+
+
+def pir_cancel(oid):
+    """Drop any motion state immediately (no tail), e.g. when the module is picked up."""
+    with LOCK:
+        PIR_STATE.pop(oid, None)
     update_inputs()
 
 

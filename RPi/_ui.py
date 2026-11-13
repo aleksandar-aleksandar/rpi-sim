@@ -54,7 +54,7 @@ FIRST_HINT = {
     "abuz": "Active buzzer: click the hole for the + leg.",
     "pbuz": "Passive buzzer: click the hole for the + leg.",
     "pir": "PIR: click an empty spot in the grey area below the breadboard.",
-    "use": "Hold a button / PIR with the mouse to activate it. Right-click deletes. "
+    "use": "Hold a button / PIR to activate it, drag any part to move it. Right-click deletes. "
            "Hover a hole to see everything connected to it.",
     "del": "Click a component or wire to delete it (right-click deletes in any mode).",
 }
@@ -99,6 +99,18 @@ def point_at(x, y):
                 if math.hypot(x - px, y - py) <= 8:
                     return f"m:{oid}:{t}"
     return None
+
+
+def snap_hole(x, y):
+    """Nearest breadboard hole to (x, y), or None if off the board."""
+    col = round((x - BB_X0) / P) + 1
+    if not 1 <= col <= core.COLS:
+        return None
+    row, best = None, P / 2 + 1
+    for r, yy in ROW_Y.items():
+        if abs(y - yy) < best:
+            row, best = r, abs(y - yy)
+    return f"bb:{row}:{col}" if row else None
 
 
 def describe(pt):
@@ -156,6 +168,7 @@ class App:
         self.hover_pts = []
         self.hover_ver = -1
         self.holding = None
+        self.drag = None            # {"oid", "x0", "y0", "active", "target", "valid"}
         self.last_eval = None
         self._status_txt = ""
         self._build()
@@ -214,6 +227,7 @@ class App:
         c = self.cv
         c.bind("<ButtonPress-1>", self._on_down)
         c.bind("<ButtonRelease-1>", self._on_up)
+        c.bind("<B1-Motion>", self._on_drag)
         c.bind("<Button-3>", self._on_right)
         c.bind("<Motion>", self._on_motion)
         self.root.bind("<Escape>", lambda e: self._cancel())
@@ -352,6 +366,8 @@ class App:
         if m == "use":
             oid = self.obj_at(x, y)
             o = core.OBJ.get(oid) if oid else None
+            if o and o["type"] != "wire":
+                self.drag = {"oid": oid, "x0": x, "y0": y, "active": False, "target": None, "valid": False}
             if o and o["type"] == "btn":
                 self.holding = oid
                 core.press(oid)
@@ -410,7 +426,59 @@ class App:
         self.pending = None
         self._hint(FIRST_HINT[m])
 
+    def _drag_target(self, oid, dx, dy):
+        """-> (changes, valid) for moving object `oid` by (dx, dy) pixels."""
+        o = core.OBJ.get(oid)
+        if o is None:
+            return None, False
+        if o["type"] == "pir":
+            nx = min(max(o["x"] + dx, BB_RECT[0] + 40), BB_RECT[2] - 40)
+            ny = min(max(o["y"] + dy, MOD_TOP + 35), CH - 60)
+            ok = all(not (abs(p["x"] - nx) < 85 and abs(p["y"] - ny) < 90)
+                     for k, p in core.OBJ.items() if p["type"] == "pir" and k != oid)
+            return {"x": nx, "y": ny}, ok
+        legs = []
+        for leg in o["legs"]:
+            lx, ly = pt_pos(leg)
+            h = snap_hole(lx + dx, ly + dy)
+            if h is None:
+                return None, False
+            legs.append(h)
+        ok = len(set(legs)) == len(legs) and all(core.occupant(h) in (None, oid) for h in legs)
+        if ok and len(legs) == 2 and o["type"] in MAX_SPAN:
+            (x1, y1), (x2, y2) = pt_pos(legs[0]), pt_pos(legs[1])
+            ok = math.hypot(x2 - x1, y2 - y1) <= MAX_SPAN[o["type"]]
+        return {"legs": legs}, ok
+
+    def _on_drag(self, e):
+        self._on_motion(e)
+        d = self.drag
+        if not d:
+            return
+        dx, dy = e.x - d["x0"], e.y - d["y0"]
+        if not d["active"]:
+            if math.hypot(dx, dy) < 6:
+                return
+            d["active"] = True
+            o = core.OBJ.get(d["oid"])
+            if self.holding and o:          # picking a part up cancels the press
+                if o["type"] == "btn":
+                    core.release(self.holding)
+                elif o["type"] == "pir":
+                    core.pir_cancel(self.holding)
+                self.holding = None
+        d["target"], d["valid"] = self._drag_target(d["oid"], dx, dy)
+
     def _on_up(self, e):
+        d, self.drag = self.drag, None
+        if d and d["active"]:
+            o = core.OBJ.get(d["oid"])
+            if d["valid"] and d["target"]:
+                core.move_obj(d["oid"], d["target"])
+                self._hint(f"Moved {o.get('name', 'part')}.")
+            elif o:
+                self._hint(f"Can't move {o.get('name', 'part')} there (off the board or holes taken).", err=True)
+            return
         if self.holding:
             o = core.OBJ.get(self.holding)
             if o and o["type"] == "btn":
@@ -534,6 +602,20 @@ class App:
         for q in self.hover_pts:
             qx, qy = pt_pos(q)
             c.create_oval(qx - 6, qy - 6, qx + 6, qy + 6, outline="#00e5ff", width=2, tags="dyn")
+        # drag preview
+        d = self.drag
+        if d and d["active"] and d["target"]:
+            col = "#3ddc84" if d["valid"] else "#ff4d4d"
+            if "legs" in d["target"]:
+                pts = [pt_pos(q) for q in d["target"]["legs"]]
+                for qx, qy in pts:
+                    c.create_oval(qx - 7, qy - 7, qx + 7, qy + 7, outline=col, width=3, tags="dyn")
+                if len(pts) == 2:
+                    c.create_line(*pts[0], *pts[1], fill=col, dash=(4, 3), width=2, tags="dyn")
+            else:
+                tx, ty = d["target"]["x"], d["target"]["y"]
+                c.create_rectangle(tx - 36, ty - 32, tx + 36, ty + 30, outline=col, width=2,
+                                   dash=(4, 3), tags="dyn")
         # placement in progress
         if self.pending:
             px, py = pt_pos(self.pending)

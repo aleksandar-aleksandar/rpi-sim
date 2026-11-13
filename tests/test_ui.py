@@ -1,0 +1,114 @@
+"""Editor interaction tests. Skipped automatically when no display is available."""
+import os
+import sys
+import tempfile
+import types
+import unittest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EXAMPLES = os.path.join(ROOT, "examples")
+os.environ["RPISIM_HEADLESS"] = "1"
+os.environ.setdefault("RPISIM_CIRCUIT", os.path.join(tempfile.mkdtemp(), "circuit.json"))
+sys.path.insert(0, ROOT)
+
+import RPi.GPIO as GPIO  # noqa: E402
+from RPi import _core as core  # noqa: E402
+
+try:
+    import tkinter as tk
+    from RPi import _ui
+    _root = tk.Tk()
+    _root.withdraw()
+except Exception as ex:  # no display / no tkinter
+    _root = None
+    _skip_reason = f"no GUI available: {ex}"
+
+
+def ev(x, y):
+    return types.SimpleNamespace(x=x, y=y)
+
+
+def first(kind):
+    return next(k for k, o in core.OBJ.items() if o["type"] == kind)
+
+
+@unittest.skipIf(_root is None, "no GUI available")
+class EditorTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = _ui.App(_root)
+
+    def setUp(self):
+        GPIO.cleanup()
+        core.MODE[0] = None
+        self.app.mode.set("use")
+        self.app.drag = None
+        self.app.holding = None
+
+    def load(self, name):
+        core.load_preset(os.path.join(EXAMPLES, name + ".json"))
+
+    def body(self, oid):
+        return self.app._body_center(core.OBJ[oid])
+
+    def drag(self, oid, dx, dy):
+        x, y = self.body(oid)
+        self.app._on_down(ev(x, y))
+        self.app._on_drag(ev(x + dx / 2, y + dy / 2))
+        self.app._on_drag(ev(x + dx, y + dy))
+        self.app._on_up(ev(x + dx, y + dy))
+
+    def test_drag_led_moves_both_legs(self):
+        self.load("01_blink")
+        led = first("led")
+        self.drag(led, 5 * _ui.P, 0)
+        self.assertEqual(core.OBJ[led]["legs"], ["bb:a:15", "bb:a:16"])
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(17, GPIO.OUT, initial=GPIO.HIGH)
+        self.assertEqual(core.evaluate()["leds"][led][0], "off")   # wires stayed behind
+
+    def test_drag_onto_taken_holes_is_rejected(self):
+        self.load("01_blink")
+        led = first("led")
+        before = list(core.OBJ[led]["legs"])
+        self.drag(led, 0, _ui.P)          # a10/a11 -> b10/b11: wire + resistor are there
+        self.assertEqual(core.OBJ[led]["legs"], before)
+        self.assertIn("Can't move", self.app.hint.cget("text"))
+
+    def test_drag_pir_wires_follow(self):
+        self.load("07_pir_motion")
+        pir = first("pir")
+        x0 = core.OBJ[pir]["x"]
+        self.drag(pir, 120, 0)
+        self.assertEqual(core.OBJ[pir]["x"], x0 + 120)
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(4, GPIO.IN)
+        self.assertEqual(core.evaluate()["pir"][pir], (True, False))   # still wired + powered
+
+    def test_click_without_drag_still_presses(self):
+        self.load("02_button_led")
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(27, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        btn = first("btn")
+        x, y = self.body(btn)
+        self.app._on_down(ev(x, y))
+        self.assertEqual(GPIO.input(27), 0)
+        self.app._on_up(ev(x, y))
+        self.assertEqual(GPIO.input(27), 1)
+        self.assertEqual(core.OBJ[btn]["legs"], ["bb:a:20", "bb:a:22"])
+
+    def test_picking_up_pressed_button_releases_it(self):
+        self.load("02_button_led")
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(27, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        btn = first("btn")
+        x, y = self.body(btn)
+        self.app._on_down(ev(x, y))
+        self.app._on_drag(ev(x + 3 * _ui.P, y))
+        self.assertEqual(GPIO.input(27), 1)
+        self.app._on_up(ev(x + 3 * _ui.P, y))
+        self.assertEqual(core.OBJ[btn]["legs"], ["bb:a:23", "bb:a:25"])
+
+
+if __name__ == "__main__":
+    unittest.main()
