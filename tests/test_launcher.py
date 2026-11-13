@@ -8,7 +8,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-import main  # noqa: E402
+from rpisim import cli as main  # noqa: E402
 
 
 class ResolveCircuitTest(unittest.TestCase):

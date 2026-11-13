@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rpi-sim"
+dynamic = ["version"]
+description = "Run Raspberry Pi GPIO code on your PC: a drop-in RPi.GPIO / gpiozero simulator with a breadboard you wire yourself"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Aleksandar Papić" }]
+requires-python = ">=3.8"
+dependencies = []
+keywords = ["raspberry-pi", "gpio", "simulator", "RPi.GPIO", "gpiozero", "breadboard", "education"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Education",
+    "Topic :: System :: Hardware",
+    "Intended Audience :: Education",
+]
+
+[project.urls]
+Homepage = "https://github.com/aleksandar-aleksandar/rpi-sim"
+Issues = "https://github.com/aleksandar-aleksandar/rpi-sim/issues"
+
+[project.scripts]
+rpi-sim = "rpisim.cli:main"
+
+[tool.setuptools]
+packages = ["RPi", "gpiozero", "rpisim"]
+
+[tool.setuptools.dynamic]
+version = { attr = "rpisim.__version__" }
