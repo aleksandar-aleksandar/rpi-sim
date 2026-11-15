@@ -73,8 +73,20 @@ python main.py my_script.py              # run your own script (circuit: my_scri
 python main.py -c board.json my_script.py
 ```
 
-Stop a running script with **Ctrl+C** in the terminal. The window stays open so
-you can inspect the final state. Close it to exit.
+Scripts run **inside the simulator window**:
+- **▶ Run script…** picks any `.py` file and runs it against the board you see.
+- **↻ Restart (F5)** reruns it after you edit the code.
+- **■ Stop (Shift+F5)** stops it. Ctrl+C in the terminal does the same, and the
+  window stays open.
+
+Stopping raises a `KeyboardInterrupt` inside the script, so your usual
+`except KeyboardInterrupt: GPIO.cleanup()` still runs. The script's `print()`
+output also shows up in the window's log.
+
+**Script ↔ board pairing:** `zad.py` always uses `zad.json` next to it. When
+you run a script from the window for the first time, the board you wired is
+saved as its `.json`. If a different saved board already exists, rpi-sim asks
+which one to keep.
 
 ### Installing with pip
 
@@ -108,6 +120,7 @@ This installs the `rpi-sim` command along with the simulated `RPi` and
 
 | Key | Action |
 |---|---|
+| **F5 / Shift+F5** | restart / stop the script |
 | **1–9** | hold the Nth button / PIR (the number is shown on the part) |
 | **Ctrl+Z / Ctrl+Y** | undo / redo (Ctrl+Shift+Z also redoes) |
 | **Esc** | cancel a placement in progress |
@@ -203,6 +216,10 @@ The editor tests need a display and skip automatically without one. CI runs
 everything on Linux (under xvfb) and Windows, for Python 3.10–3.14.
 
 ## Limitations
+
+- Scripts run on a background thread. Inside a script, `input()` just waits for
+  Stop (scripts usually call it only to stay alive), and `signal.signal()`
+  isn't available. Modules your script imports aren't reloaded on Restart.
 
 - The button has 2 legs. A real tactile switch has 4, internally connected in
   pairs.

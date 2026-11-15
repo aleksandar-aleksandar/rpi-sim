@@ -1,5 +1,6 @@
 """Simulator window: Raspberry Pi header + breadboard + components + wires."""
 import glob
+import json
 import math
 import os
 import threading
@@ -8,13 +9,15 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 from . import _core as core
+from . import _paths
+from . import _runner as runner
 
 try:
     import winsound
 except ImportError:  # sound is only available on Windows
     winsound = None
 
-PRESETS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "examples")
+PRESETS_DIR = _paths.presets_dir()
 
 # ---------------- geometry ----------------
 CW, CH = 1100, 650
@@ -156,6 +159,39 @@ def _mix(c1, c2, t):
     return "#%02x%02x%02x" % tuple(int(x + (y - x) * t) for x, y in zip(a, b))
 
 
+def pair_circuit(script, ask):
+    """Point the board at `script`'s circuit file before running it.
+
+    ask(saved_name) is called only when a saved board exists AND the editor
+    holds a different, non-empty board: True = load the saved one, False = keep
+    the editor's (and save it there), None = cancel. Returns False if cancelled."""
+    target, preset = _paths.circuit_for(script)
+    if preset:                                         # bundled example: fresh copy of its preset
+        _paths.copy_preset(preset, target)
+        core.load(target)
+        return True
+    if os.path.normcase(target) == os.path.normcase(os.path.abspath(core.CUR_FILE[0])):
+        return True
+    if os.path.exists(target):
+        try:
+            with open(target, encoding="utf-8") as f:
+                saved = json.load(f).get("objects", {})
+        except Exception:
+            saved = None
+        if saved == core.OBJ or not core.OBJ:
+            core.load(target)
+            return True
+        choice = ask(os.path.basename(target))
+        if choice is None:
+            return False
+        if choice:
+            core.load(target)
+            return True
+    core.save(target)
+    core.log(f"Board saved as {os.path.basename(target)} (paired with {os.path.basename(script)})")
+    return True
+
+
 def list_presets():
     files = sorted(glob.glob(os.path.join(PRESETS_DIR, "*.json")))
     return {os.path.splitext(os.path.basename(f))[0]: f for f in files}
@@ -222,6 +258,14 @@ class App:
         ttk.Button(bar2, text="Save as…", command=self._save_as).pack(side="right", padx=2)
         ttk.Button(bar2, text="Open…", command=self._open).pack(side="right", padx=2)
 
+        bar3 = ttk.Frame(self.root, padding=(6, 4, 6, 0))
+        bar3.pack(fill="x")
+        ttk.Button(bar3, text="▶ Run script…", command=self._run_dialog).pack(side="left", padx=(0, 2))
+        ttk.Button(bar3, text="↻ Restart (F5)", command=self._restart).pack(side="left", padx=2)
+        ttk.Button(bar3, text="■ Stop (Shift+F5)", command=self._stop).pack(side="left", padx=2)
+        self.script_label = tk.Label(bar3, text="", anchor="w", font=("Segoe UI", 9))
+        self.script_label.pack(side="left", padx=10)
+
         self.cv = tk.Canvas(self.root, width=CW, height=CH, bg="#2b2f36", highlightthickness=0)
         self.cv.pack(padx=6, pady=4)
         self.hint = tk.Label(self.root, text="", anchor="w", font=("Segoe UI", 10), fg="#0b4f9c")
@@ -249,6 +293,8 @@ class App:
         c.bind("<Button-3>", self._on_right)
         c.bind("<Motion>", self._on_motion)
         self.root.bind("<Escape>", lambda e: self._cancel())
+        self.root.bind("<F5>", lambda e: self._restart())
+        self.root.bind("<Shift-F5>", lambda e: self._stop())
         self.root.bind("<KeyPress>", self._key_down)
         self.root.bind("<KeyRelease>", self._key_up)
         for seq in ("<Control-z>", "<Control-Z>"):
@@ -512,6 +558,53 @@ class App:
         core.add_obj(o)
         self.pending = None
         self._hint(FIRST_HINT[m])
+
+    # ---------- running scripts ----------
+    def _run_dialog(self):
+        start_dir = os.path.dirname(runner.script() or core.CUR_FILE[0])
+        path = filedialog.askopenfilename(parent=self.root, initialdir=start_dir, title="Run a script",
+                                          filetypes=[("Python script", "*.py"), ("All files", "*.*")])
+        if path:
+            self.start_script(path)
+
+    def _ask_which_board(self, saved_name):
+        return messagebox.askyesnocancel(
+            "Which board?",
+            f"{saved_name} already holds a saved board that differs from the one in the editor.\n\n"
+            f"Yes – load the saved board\n"
+            f"No – keep the editor's board (it is saved as {saved_name})\n"
+            f"Cancel – don't run", parent=self.root)
+
+    def start_script(self, path, ask=None):
+        if not pair_circuit(path, ask or self._ask_which_board):
+            return False
+        self.pending = self.drag = None
+        runner.start(path)
+        self._hint(f"Running {os.path.basename(path)} on {os.path.basename(core.CUR_FILE[0])}. "
+                   f"F5 restarts, Shift+F5 stops.")
+        return True
+
+    def _restart(self):
+        if runner.script():
+            runner.restart()
+            self._hint(f"Restarted {os.path.basename(runner.script())}.")
+        else:
+            self._run_dialog()
+
+    def _stop(self):
+        if runner.is_running():
+            self._hint("Stopped." if runner.stop() else "The script did not stop – see the log.")
+
+    def _update_script_info(self):
+        name = os.path.basename(runner.script()) if runner.script() else None
+        st = runner.status()
+        circuit = os.path.basename(core.CUR_FILE[0])
+        text = f"{name} – {st}   ·   board: {circuit}" if name else f"no script   ·   board: {circuit}"
+        colour = {"running": "#167a2c", "crashed": "#c00000"}.get(st, "#555")
+        if self.script_label.cget("text") != text:
+            self.script_label.config(text=text, fg=colour)
+            title = "Raspberry Pi simulator"
+            self.root.title(f"{title} — {name} · {circuit}" if name else f"{title} — {circuit}")
 
     def _place_rgb(self, pt):
         k = pt.split(":")
@@ -856,6 +949,10 @@ class App:
     # ---------- status ----------
     def _update_status(self, ev):
         lines = [("h", f"Circuit: {os.path.basename(core.CUR_FILE[0])} (auto-saved)\n")]
+        if runner.script():
+            st = runner.status()
+            tag = {"crashed": "warn", "running": "ok"}.get(st, "")
+            lines.append((tag, f"Script: {os.path.basename(runner.script())} – {st}\n"))
         n = ev["gnd_wires"]
         if n == 1:
             lines.append(("ok", "GND wires to the Pi: 1 – OK (single common ground)\n"))
@@ -911,6 +1008,7 @@ class App:
                     self.hover_pts = []
                     self.info.config(text="")
             self.last_eval = ev
+            self._update_script_info()
             self._draw_dynamic(ev, objs)
             self._update_status(ev)
             while True:

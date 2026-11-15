@@ -10,6 +10,7 @@ Pins are BCM numbers (17) or strings ("GPIO17", "BCM17", "BOARD11").
 import inspect
 import threading
 import time
+import weakref
 
 import RPi.GPIO as GPIO
 from RPi import _core as _sim
@@ -35,6 +36,17 @@ class GPIOPinInUse(GPIOZeroError):
 
 
 _USED = set()
+_DEVICES = weakref.WeakSet()
+
+
+def _close_all():
+    """Close every device (used by the simulator when a script stops or restarts)."""
+    for d in list(_DEVICES):
+        try:
+            d.close()
+        except Exception:
+            pass
+    _USED.clear()
 
 
 def _bcm(pin):
@@ -80,6 +92,7 @@ class Device:
                 raise GPIOPinInUse(f"pin GPIO{b} is already in use")
         _USED.update(self._pins)
         self._closed = False
+        _DEVICES.add(self)
 
     @property
     def closed(self):

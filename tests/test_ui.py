@@ -148,6 +148,75 @@ class EditorTest(unittest.TestCase):
 
 
 @unittest.skipIf(_root is None, "no GUI available")
+class ScriptPairingTest(unittest.TestCase):
+    """Which board a script runs on when started from the window."""
+
+    def setUp(self):
+        from RPi import _runner
+        _runner.stop()
+        self.dir = tempfile.mkdtemp()
+        self.script = os.path.join(self.dir, "zad.py")
+        with open(self.script, "w") as f:
+            f.write("import time\nwhile True:\n    time.sleep(0.05)\n")
+        self.asked = []
+        core.load_preset(os.path.join(EXAMPLES, "01_blink.json"))
+        core.save(os.path.join(self.dir, "editor.json"))
+
+    def tearDown(self):
+        from RPi import _runner
+        _runner.stop()
+
+    def ask(self, answer):
+        def f(name):
+            self.asked.append(name)
+            return answer
+        return f
+
+    def test_new_script_keeps_editor_board(self):
+        self.assertTrue(_ui.pair_circuit(self.script, self.ask(True)))
+        self.assertEqual(core.CUR_FILE[0], os.path.join(self.dir, "zad.json"))
+        self.assertTrue(os.path.exists(core.CUR_FILE[0]))
+        self.assertEqual(self.asked, [])
+
+    def test_conflict_asks_and_can_load_saved(self):
+        core.save(os.path.join(self.dir, "zad.json"))
+        core.save(os.path.join(self.dir, "editor.json"))
+        core.add_obj({"type": "wire", "a": "pi:1", "b": "bb:T+:1", "color": "#d42020"})
+        n_editor = len(core.OBJ)
+        self.assertTrue(_ui.pair_circuit(self.script, self.ask(True)))
+        self.assertEqual(self.asked, ["zad.json"])
+        self.assertEqual(len(core.OBJ), n_editor - 1)          # saved board loaded
+
+    def test_conflict_keep_editor_board(self):
+        core.save(os.path.join(self.dir, "zad.json"))
+        core.save(os.path.join(self.dir, "editor.json"))
+        core.add_obj({"type": "wire", "a": "pi:1", "b": "bb:T+:1", "color": "#d42020"})
+        n_editor = len(core.OBJ)
+        self.assertTrue(_ui.pair_circuit(self.script, self.ask(False)))
+        self.assertEqual(len(core.OBJ), n_editor)
+        self.assertEqual(core.CUR_FILE[0], os.path.join(self.dir, "zad.json"))
+
+    def test_cancel_does_not_run(self):
+        core.save(os.path.join(self.dir, "zad.json"))
+        core.save(os.path.join(self.dir, "editor.json"))
+        core.add_obj({"type": "wire", "a": "pi:1", "b": "bb:T+:1", "color": "#d42020"})
+        app = _ui.App(_root)
+        self.assertFalse(app.start_script(self.script, ask=self.ask(None)))
+        from RPi import _runner
+        self.assertFalse(_runner.is_running())
+
+    def test_run_from_window(self):
+        app = _ui.App(_root)
+        self.assertTrue(app.start_script(self.script, ask=self.ask(True)))
+        from RPi import _runner
+        self.assertTrue(_runner.is_running())
+        app._update_script_info()
+        self.assertIn("zad.py – running", app.script_label.cget("text"))
+        app._stop()
+        self.assertFalse(_runner.is_running())
+
+
+@unittest.skipIf(_root is None, "no GUI available")
 class DrawingTest(unittest.TestCase):
     """Render every preset with all outputs driven, to catch drawing errors."""
 
